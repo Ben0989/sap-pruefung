@@ -65,8 +65,7 @@ function showQuestion() {
 
     const answer = document.getElementById("answer");
 
-    answer.innerText = q.answer;
-    answer.style.display = "none";
+        answer.innerText = q.answer;
 
     createCheckboxes(q.points);
 }
@@ -88,12 +87,18 @@ function createCheckboxes(points) {
         label.style.display = "block";
         label.style.marginBottom = "10px";
 
-        label.innerHTML = `
-            <input type="checkbox" class="point">
-            Punkt ${i}
-        `;
+        const checkbox = document.createElement("input");
+
+        checkbox.type = "checkbox";
+        checkbox.className = "point";
+        checkbox.checked = false;
+
+        label.appendChild(checkbox);
+
+        label.append(" Punkt " + i);
 
         div.appendChild(label);
+
     }
 
 }
