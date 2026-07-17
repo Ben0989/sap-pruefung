@@ -1,24 +1,48 @@
+// ==========================
+// SAP Prüfungsgenerator
+// app.js
+// Teil 1
+// ==========================
+
 let exam = [];
 let currentQuestion = 0;
 let reachedPoints = 0;
 let maxPoints = 0;
 
+// ==========================
+// Prüfung starten
+// ==========================
+
 function startExam() {
+
+    const student = document.getElementById("studentName");
+
+    if (student.value.trim() === "") {
+        alert("Bitte zuerst den Namen des Prüflings eingeben.");
+        student.focus();
+        return;
+    }
 
     exam = generateExam();
 
     currentQuestion = 0;
     reachedPoints = 0;
+
     maxPoints = exam.reduce((sum, q) => sum + q.points, 0);
 
     showQuestion();
 }
-function showQuestion(){
+
+// ==========================
+// Aktuelle Frage anzeigen
+// ==========================
+
+function showQuestion() {
 
     const q = exam[currentQuestion];
 
     document.getElementById("counter").innerText =
-        `Frage ${currentQuestion+1} / ${exam.length}`;
+        `Frage ${currentQuestion + 1} / ${exam.length}`;
 
     document.getElementById("category").innerText =
         q.category;
@@ -26,79 +50,213 @@ function showQuestion(){
     document.getElementById("question").innerText =
         q.question;
 
-    document.getElementById("situation").innerText =
-        q.situation || "";
+    const situation = document.getElementById("situation");
 
-    document.getElementById("answer").innerText =
-        q.answer;
+    if (q.situation) {
 
-    document.getElementById("answer").style.display = "none";
+        situation.style.display = "block";
+        situation.innerText = q.situation;
+
+    } else {
+
+        situation.style.display = "none";
+
+    }
+
+    const answer = document.getElementById("answer");
+
+    answer.innerText = q.answer;
+    answer.style.display = "none";
 
     createCheckboxes(q.points);
 }
-function createCheckboxes(points){
+
+// ==========================
+// Checkboxen erzeugen
+// ==========================
+
+function createCheckboxes(points) {
 
     const div = document.getElementById("checkboxes");
 
     div.innerHTML = "";
 
-    for(let i=1;i<=points;i++){
+    for (let i = 1; i <= points; i++) {
 
-        div.innerHTML += `
-            <label>
-                <input type="checkbox" class="point">
-                Punkt ${i}
-            </label><br>
+        const label = document.createElement("label");
+
+        label.style.display = "block";
+        label.style.marginBottom = "10px";
+
+        label.innerHTML = `
+            <input type="checkbox" class="point">
+            Punkt ${i}
         `;
+
+        div.appendChild(label);
     }
 
 }
-function showAnswer(){
 
-    document.getElementById("answer").style.display="block";
+// ==========================
+// Musterlösung anzeigen
+// ==========================
+
+function showAnswer() {
+
+    document.getElementById("answer").style.display = "block";
 
 }
-function nextQuestion(){
+
+// ==========================
+// Punkte übernehmen
+// ==========================
+
+function collectPoints() {
 
     const checks =
         document.querySelectorAll(".point");
 
-    checks.forEach(c=>{
-        if(c.checked)
-            reachedPoints++;
+    let points = 0;
+
+    checks.forEach(c => {
+
+        if (c.checked)
+            points++;
+
     });
+
+    reachedPoints += points;
+
+}
+// ==========================
+// Nächste Frage
+// ==========================
+
+function nextQuestion() {
+
+    if (exam.length === 0)
+        return;
+
+    collectPoints();
 
     currentQuestion++;
 
-    if(currentQuestion >= exam.length){
+    if (currentQuestion >= exam.length) {
+
         finishExam();
         return;
+
     }
 
     showQuestion();
 
 }
-function finishExam(){
 
-    const percent =
-        reachedPoints / maxPoints *100;
+// ==========================
+// Prüfung abschließen
+// ==========================
 
-    const passed = percent >=80;
+function finishExam() {
 
-    document.body.innerHTML=`
+    const percent = Math.round((reachedPoints / maxPoints) * 100);
 
-        <h1>Prüfung beendet</h1>
+    const passed = percent >= 80;
 
-        <h2>${reachedPoints} / ${maxPoints} Punkte</h2>
+    let color = "#c62828";
+    let text = "NICHT BESTANDEN";
 
-        <h2>${percent.toFixed(1)} %</h2>
+    if (passed) {
 
-        <h1 style="color:${passed?"green":"red"}">
+        color = "#2e7d32";
+        text = "BESTANDEN";
 
-        ${passed?"BESTANDEN":"NICHT BESTANDEN"}
+    }
 
+    document.body.innerHTML = `
+
+    <div style="max-width:700px;margin:60px auto;font-family:Arial;padding:30px;text-align:center;">
+
+        <h1>SAP Prüfung abgeschlossen</h1>
+
+        <hr>
+
+        <h2>Prüfling</h2>
+
+        <p style="font-size:24px;">
+            ${document.getElementById("studentName").value}
+        </p>
+
+        <br>
+
+        <h2>Punkte</h2>
+
+        <p style="font-size:32px;font-weight:bold;">
+            ${reachedPoints} / ${maxPoints}
+        </p>
+
+        <br>
+
+        <h2>Ergebnis</h2>
+
+        <p style="font-size:40px;font-weight:bold;color:${color};">
+            ${percent} %
+        </p>
+
+        <h1 style="color:${color};">
+            ${text}
         </h1>
+
+        <br><br>
+
+        <button
+            onclick="location.reload()"
+            style="
+                padding:15px 30px;
+                font-size:20px;
+                cursor:pointer;
+            ">
+
+            Neue SAP starten
+
+        </button>
+
+    </div>
 
     `;
 
 }
+
+// ==========================
+// ENTER startet Prüfung
+// ==========================
+
+window.addEventListener("load", () => {
+
+    const input = document.getElementById("studentName");
+
+    if (input) {
+
+        input.addEventListener("keypress", function (e) {
+
+            if (e.key === "Enter") {
+
+                startExam();
+
+            }
+
+        });
+
+    }
+
+});
+
+// ==========================
+// Sicherheitsprüfung
+// ==========================
+
+window.onerror = function (msg, url, line) {
+
+    console.error("Fehler:", msg);
+
+};
