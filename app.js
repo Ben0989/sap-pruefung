@@ -172,6 +172,13 @@ function finishExam() {
         text = "BESTANDEN";
 
     }
+    saveExam(
+    document.getElementById("studentName").value,
+    reachedPoints,
+    maxPoints,
+    percent,
+    passed
+);
 
     document.body.innerHTML = `
 
