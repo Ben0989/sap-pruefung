@@ -1,12 +1,17 @@
 <!DOCTYPE html>
 <html lang="de">
+
 <head>
+
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <title>SAP Prüfungsgenerator</title>
 
     <link rel="stylesheet" href="style.css">
+
 </head>
+
 <body>
 
 <header>
@@ -17,25 +22,7 @@
 
 <main>
 
-    <!-- Startseite -->
-    <section id="home" class="page active">
-
-        <button id="newExamBtn">
-            Neue SAP erstellen
-        </button>
-
-        <button id="savedBtn">
-            Gespeicherte SAPs
-        </button>
-
-        <button id="statsBtn">
-            Statistik
-        </button>
-
-    </section>
-
-    <!-- Prüfung -->
-    <section id="exam" class="page">
+    <div class="questionBox">
 
         <div class="top">
 
@@ -44,135 +31,59 @@
                 type="text"
                 placeholder="Name des Prüflings">
 
-            <div id="progress">
-                Frage 1 / 15
+            <div id="counter">
+                Frage 0 / 0
             </div>
 
         </div>
 
-        <div class="questionBox">
+        <h3 id="category"></h3>
 
-            <h2 id="questionTitle">
-
-            </h2>
-
-            <div id="answers">
-
-            </div>
-
+        <div id="situation"
+             style="display:block;
+                    margin:20px 0;
+                    padding:15px;
+                    background:#eef5ff;
+                    border-left:5px solid #0b2d57;">
         </div>
 
-        <div class="navigation">
+        <h2 id="question"></h2>
 
-            <button id="backBtn">
-                ← Zurück
-            </button>
+        <div id="checkboxes"></div>
 
-            <button id="nextBtn">
-                Weiter →
-            </button>
-
+        <div id="answer"
+             style="display:none;
+                    margin-top:25px;
+                    padding:20px;
+                    background:#e8ffe8;
+                    border-left:5px solid green;
+                    white-space:pre-line;">
         </div>
 
-    </section>
+    </div>
 
-    <!-- Ergebnis -->
-    <section id="result" class="page">
+    <div class="navigation">
 
-        <h2>Ergebnis</h2>
-
-        <div class="resultBox">
-
-            <p>
-                Punkte:
-                <span id="points">
-                    0 / 0
-                </span>
-            </p>
-
-            <p>
-                Prozent:
-                <span id="percent">
-                    0 %
-                </span>
-            </p>
-
-            <h3 id="passed">
-
-            </h3>
-
-        </div>
-
-        <button id="finishBtn">
-
-            Zur Startseite
-
+        <button onclick="startExam()">
+            Neue SAP
         </button>
 
-    </section>
-
-    <!-- Gespeicherte SAPs -->
-    <section id="saved" class="page">
-
-        <h2>
-            Gespeicherte SAPs
-        </h2>
-
-        <div id="savedList">
-
-        </div>
-
-        <button class="backHome">
-            Zurück
+        <button onclick="showAnswer()">
+            Musterlösung anzeigen
         </button>
 
-    </section>
-
-    <!-- Statistik -->
-    <section id="stats" class="page">
-
-        <h2>
-            Statistik
-        </h2>
-
-        <div class="statsBox">
-
-            <p>
-                Prüfungen:
-                <span id="statCount">0</span>
-            </p>
-
-            <p>
-                Durchschnitt:
-                <span id="statAverage">0 %</span>
-            </p>
-
-            <p>
-                Bestanden:
-                <span id="statPassed">0</span>
-            </p>
-
-            <p>
-                Nicht bestanden:
-                <span id="statFailed">0</span>
-            </p>
-
-        </div>
-
-        <button class="backHome">
-
-            Zurück
-
+        <button onclick="nextQuestion()">
+            Nächste Frage →
         </button>
 
-    </section>
+    </div>
 
 </main>
 
 <script src="questions.js"></script>
 <script src="generator.js"></script>
-<script src="storage.js"></script>
 <script src="app.js"></script>
 
 </body>
+
 </html>
