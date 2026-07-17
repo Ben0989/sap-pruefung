@@ -1,1 +1,67 @@
-<!DOCTYPE html><html><head><title>SAP Prüfung</title></head><body><h1>SAP</h1></body></html>
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAP Prüfungssystem</title>
+<link rel="stylesheet" href="style.css">
+<script defer src="data.js"></script>
+<script defer src="generator.js"></script>
+<script defer src="storage.js"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+<header>
+<div class="header-left"><h1>SAP Prüfungssystem</h1><p>Simulation · Ausbildung · Bewertung</p></div>
+<div class="header-right"><div class="status-box"><span>Status</span><h2 id="examStatus">Nicht gestartet</h2></div></div>
+</header>
+<main>
+<section class="dashboard"><div class="card"><h2>Prüfungsdaten</h2>
+<div class="grid">
+<div class="form-group"><label>Prüfling</label><input id="candidate" type="text"></div>
+<div class="form-group"><label>Prüfer</label><input id="examiner" type="text"></div>
+<div class="form-group"><label>Datum</label><input id="examDate" type="date"></div>
+<div class="form-group"><label>Beginn</label><input id="startTime" type="time"></div>
+<div class="form-group"><label>Ende</label><input id="endTime" type="time"></div>
+<div class="form-group"><label>Prüfungsnummer</label><input id="examNumber" readonly></div>
+</div></div></section>
+
+<section class="controls">
+<button id="generateBtn">SAP generieren</button>
+<button id="saveBtn">SAP speichern</button>
+<button id="loadBtn">SAP laden</button>
+<button id="resetBtn">Neue SAP</button>
+</section>
+
+<section class="overview">
+<div class="overview-card"><h3>Gesamtpunkte</h3><div id="score">0</div></div>
+<div class="overview-card"><h3>Maximal</h3><div id="maxScore">0</div></div>
+<div class="overview-card"><h3>Ergebnis</h3><div id="result">Offen</div></div>
+</section>
+
+<section class="progress-area">
+<div class="progress-header"><span>Fortschritt</span><span id="progressText">0 %</span></div>
+<div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+</section>
+
+<section id="questionContainer"></section>
+
+<section class="summary">
+<div class="summary-card">
+<h2>Prüfungsauswertung</h2>
+<table class="result-table">
+<tr><td>Prüfling</td><td id="summaryCandidate">-</td></tr>
+<tr><td>Prüfer</td><td id="summaryExaminer">-</td></tr>
+<tr><td>Datum</td><td id="summaryDate">-</td></tr>
+<tr><td>Beginn</td><td id="summaryStart">-</td></tr>
+<tr><td>Ende</td><td id="summaryEnd">-</td></tr>
+<tr><td>Erreichte Punkte</td><td id="summaryScore">0</td></tr>
+<tr><td>Maximalpunkte</td><td id="summaryMax">0</td></tr>
+<tr><td>Ergebnis</td><td id="summaryResult">Offen</td></tr>
+</table>
+</div></section>
+
+<footer><strong>SAP Prüfungssystem</strong></footer>
+</main>
+</body>
+</html>
