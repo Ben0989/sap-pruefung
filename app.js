@@ -612,6 +612,88 @@ window.onerror = function (msg, url, line, column, error) {
     return false;
 
 };
+// ==========================================
+// Gespeicherte SAPs anzeigen
+// ==========================================
+
+function showSavedExams() {
+
+    const exams = getSavedExams();
+
+    const list =
+        document.getElementById("savedExamList");
+
+    list.innerHTML = "";
+
+    if (exams.length === 0) {
+
+        list.innerHTML =
+            "<p>Keine gespeicherten SAPs vorhanden.</p>";
+
+    }
+
+    exams.forEach(exam => {
+
+        const card =
+            document.createElement("div");
+
+        card.className = "savedCard";
+
+        card.innerHTML = `
+
+<h3>${exam.student}</h3>
+
+<p>
+
+Prüfer:
+${exam.examiner}
+
+</p>
+
+<p>
+
+${exam.created}
+
+</p>
+
+<p>
+
+${exam.points}/${exam.maxPoints}
+
+(${exam.percent}%)
+
+</p>
+
+<p>
+
+${exam.passed
+? "✅ BESTANDEN"
+: "❌ NICHT BESTANDEN"}
+
+</p>
+
+<button onclick="openSavedExam(${exam.id})">
+
+Öffnen
+
+</button>
+
+<button onclick="removeSavedExam(${exam.id})">
+
+Löschen
+
+</button>
+
+`;
+
+        list.appendChild(card);
+
+    });
+
+    document.getElementById("savedExams").style.display =
+        "block";
+
+}
 
 // ==========================================
 // Entwicklungsinfo
