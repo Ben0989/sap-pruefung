@@ -694,7 +694,167 @@ Löschen
         "block";
 
 }
+// ==========================================
+// Gespeicherte SAP öffnen
+// ==========================================
 
+function openSavedExam(id) {
+
+    const exam = getExam(id);
+
+    if (!exam) {
+
+        alert("SAP nicht gefunden.");
+
+        return;
+
+    }
+
+    let html = `
+
+<div class="resultContainer">
+
+<div class="resultBox">
+
+<h1>Gespeicherte SAP</h1>
+
+<hr>
+
+<p><b>Prüfling:</b> ${exam.student}</p>
+
+<p><b>Prüfer:</b> ${exam.examiner}</p>
+
+<p><b>Beginn:</b> ${exam.startTime}</p>
+
+<p><b>Ende:</b> ${exam.endTime}</p>
+
+<p><b>Dauer:</b> ${exam.duration} Minuten</p>
+
+<hr>
+
+<h2>
+
+${exam.points}/${exam.maxPoints} Punkte
+
+</h2>
+
+<h2>
+
+${exam.percent} %
+
+</h2>
+
+<h2 class="${exam.passed ? "pass" : "fail"}">
+
+${exam.passed ? "BESTANDEN" : "NICHT BESTANDEN"}
+
+</h2>
+
+<hr>
+
+<h2>Fehlerübersicht</h2>
+
+`;
+
+    if (exam.mistakes.length === 0) {
+
+        html += "<p>Keine Fehler.</p>";
+
+    } else {
+
+        exam.mistakes.forEach(m => {
+
+            html += `
+
+<div class="errorCard">
+
+<h3>Frage ${m.number}</h3>
+
+<p><b>${m.category}</b></p>
+
+<p>${m.question}</p>
+
+<ul>
+
+`;
+
+            m.missing.forEach(answer => {
+
+                html += `<li>☐ ${answer}</li>`;
+
+            });
+
+            html += `
+
+</ul>
+
+</div>
+
+`;
+
+        });
+
+    }
+
+    html += `
+
+<br>
+
+<button onclick="location.reload()">
+
+Zurück
+
+</button>
+
+</div>
+
+</div>
+
+`;
+
+    document.body.innerHTML = html;
+
+}
+
+// ==========================================
+// Einzelne SAP löschen
+// ==========================================
+
+function removeSavedExam(id) {
+
+    if (!confirm("Diese SAP löschen?"))
+        return;
+
+    deleteExam(id);
+
+    showSavedExams();
+
+}
+
+// ==========================================
+// Alle SAPs löschen
+// ==========================================
+
+function deleteAllExams() {
+
+    if (!confirm("Wirklich alle SAPs löschen?"))
+        return;
+
+    clearAllExams();
+
+    showSavedExams();
+
+}
+
+// ==========================================
+// Übersicht schließen
+// ==========================================
+
+function hideSavedExams() {
+
+    document.getElementById("savedExams").style.display = "none";
+
+}
 // ==========================================
 // Entwicklungsinfo
 // ==========================================
