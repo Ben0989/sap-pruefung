@@ -62,7 +62,11 @@
         Neue SAP
 
     </button>
-
+    
+    <button id="savedBtn" onclick="showSavedExams()">
+    Gespeicherte SAPs
+    </button>
+    
     <button
         id="backBtn"
         onclick="previousQuestion()"
@@ -79,6 +83,24 @@
 
         Weiter →
 
+    </button>
+
+</div>
+
+<div id="savedExams" style="display:none;">
+
+    <h2>Gespeicherte SAPs</h2>
+
+    <div id="savedExamList"></div>
+
+    <br>
+
+    <button onclick="hideSavedExams()">
+        Zurück
+    </button>
+
+    <button onclick="deleteAllExams()">
+        Alle löschen
     </button>
 
 </div>
