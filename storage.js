@@ -1,13 +1,13 @@
-// ==========================
+// ==========================================
 // storage.js
-// SAP Prüfungsgenerator
-// ==========================
+// Speichert SAP-Prüfungen lokal im Browser
+// ==========================================
 
-const STORAGE_KEY = "sap_pruefungen";
+const STORAGE_KEY = "sap_exams";
 
-// --------------------------
+// ==========================================
 // Alle Prüfungen laden
-// --------------------------
+// ==========================================
 
 function loadExams() {
 
@@ -28,11 +28,11 @@ function loadExams() {
 
 }
 
-// --------------------------
+// ==========================================
 // Alle Prüfungen speichern
-// --------------------------
+// ==========================================
 
-function saveExams(exams) {
+function saveAllExams(exams) {
 
     localStorage.setItem(
         STORAGE_KEY,
@@ -41,105 +41,112 @@ function saveExams(exams) {
 
 }
 
-// --------------------------
-// Eine Prüfung speichern
-// --------------------------
+// ==========================================
+// Einzelne SAP speichern
+// ==========================================
 
-function saveExam(student, points, maxPoints, percent, passed) {
+function saveExam(
+    student,
+    examiner,
+    points,
+    maxPoints,
+    percent,
+    passed,
+    startTime,
+    endTime,
+    duration,
+    mistakes
+) {
 
     const exams = loadExams();
 
-    exams.push({
+    exams.unshift({
+
+        id: Date.now(),
 
         student,
+
+        examiner,
+
         points,
+
         maxPoints,
+
         percent,
+
         passed,
 
-        date: new Date().toLocaleString("de-DE")
+        startTime,
+
+        endTime,
+
+        duration,
+
+        mistakes,
+
+        created: new Date().toLocaleString("de-DE")
 
     });
 
-    saveExams(exams);
+    saveAllExams(exams);
 
 }
 
-// --------------------------
-// Alle Prüfungen löschen
-// --------------------------
+// ==========================================
+// Alle gespeicherten SAPs
+// ==========================================
 
-function deleteAllExams() {
+function getSavedExams() {
+
+    return loadExams();
+
+}
+
+// ==========================================
+// Eine SAP löschen
+// ==========================================
+
+function deleteExam(id) {
+
+    let exams = loadExams();
+
+    exams = exams.filter(exam => exam.id !== id);
+
+    saveAllExams(exams);
+
+}
+
+// ==========================================
+// Alle SAPs löschen
+// ==========================================
+
+function clearAllExams() {
+
+    if (!confirm("Alle gespeicherten SAPs löschen?"))
+        return;
 
     localStorage.removeItem(STORAGE_KEY);
 
 }
 
-// --------------------------
-// Statistik berechnen
-// --------------------------
+// ==========================================
+// SAP anhand der ID laden
+// ==========================================
 
-function getStatistics() {
-
-    const exams = loadExams();
-
-    if (exams.length === 0) {
-
-        return {
-
-            total: 0,
-            average: 0,
-            passed: 0,
-            failed: 0
-
-        };
-
-    }
-
-    let sum = 0;
-    let passed = 0;
-
-    exams.forEach(exam => {
-
-        sum += exam.percent;
-
-        if (exam.passed)
-            passed++;
-
-    });
-
-    return {
-
-        total: exams.length,
-
-        average: (
-            sum / exams.length
-        ).toFixed(1),
-
-        passed,
-
-        failed: exams.length - passed
-
-    };
-
-}
-
-// --------------------------
-// Einzelne Prüfung löschen
-// --------------------------
-
-function deleteExam(index) {
+function getExam(id) {
 
     const exams = loadExams();
 
-    exams.splice(index, 1);
-
-    saveExams(exams);
+    return exams.find(exam => exam.id === id);
 
 }
 
-// --------------------------
-// Konsole (Test)
-// --------------------------
+// ==========================================
+// Anzahl gespeicherter Prüfungen
+// ==========================================
 
-console.log("storage.js geladen");
+function getExamCount() {
+
+    return loadExams().length;
+
+}
