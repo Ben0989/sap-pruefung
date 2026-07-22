@@ -855,6 +855,104 @@ function hideSavedExams() {
     document.getElementById("savedExams").style.display = "none";
 
 }
+function showStatistics() {
+
+    const exams = getSavedExams();
+
+    if (exams.length === 0) {
+
+        alert("Keine gespeicherten SAPs vorhanden.");
+
+        return;
+
+    }
+
+    const total = exams.length;
+
+    const passed = exams.filter(e => e.passed).length;
+
+    const failed = total - passed;
+
+    const averagePercent =
+        Math.round(
+            exams.reduce((a, b) => a + b.percent, 0) / total
+        );
+
+    const averagePoints =
+        (
+            exams.reduce((a, b) => a + b.points, 0) / total
+        ).toFixed(1);
+
+    const successRate =
+        Math.round((passed / total) * 100);
+
+    let html = `
+
+<div class="resultContainer">
+
+<div class="resultBox">
+
+<h1>Schulstatistik</h1>
+
+<hr>
+
+<p><b>Durchgeführte SAPs:</b> ${total}</p>
+
+<p><b>Bestanden:</b> ${passed}</p>
+
+<p><b>Nicht bestanden:</b> ${failed}</p>
+
+<p><b>Bestehensquote:</b> ${successRate}%</p>
+
+<p><b>Ø Prozent:</b> ${averagePercent}%</p>
+
+<p><b>Ø Punkte:</b> ${averagePoints}</p>
+
+<hr>
+
+<h2>Letzte Prüfungen</h2>
+
+`;
+
+    exams.slice(0, 10).forEach(exam => {
+
+        html += `
+
+<div class="savedCard">
+
+<b>${exam.student}</b><br>
+
+${exam.examiner}<br>
+
+${exam.percent}%<br>
+
+${exam.created}
+
+</div>
+
+`;
+
+    });
+
+    html += `
+
+<br>
+
+<button onclick="location.reload()">
+
+Zurück
+
+</button>
+
+</div>
+
+</div>
+
+`;
+
+    document.body.innerHTML = html;
+
+}
 // ==========================================
 // Entwicklungsinfo
 // ==========================================
