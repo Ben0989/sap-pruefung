@@ -22,61 +22,66 @@
 
 <main>
 
-    <div class="questionBox">
+<div class="questionBox">
 
-        <div class="top">
+    <div class="top">
 
-            <input
-                id="studentName"
-                type="text"
-                placeholder="Name des Prüflings">
+        <input
+            id="studentName"
+            type="text"
+            placeholder="Name des Prüflings">
 
-            <div id="counter">
-                Frage 0 / 0
-            </div>
+        <div id="counter">
 
-        </div>
+            Frage 0 / 15
 
-        <h3 id="category"></h3>
-
-        <div id="situation"
-             style="display:block;
-                    margin:20px 0;
-                    padding:15px;
-                    background:#eef5ff;
-                    border-left:5px solid #0b2d57;">
-        </div>
-
-        <h2 id="question"></h2>
-
-        <div id="checkboxes"></div>
-
-        <div id="answer"
-             style="display:none;
-                    margin-top:25px;
-                    padding:20px;
-                    background:#e8ffe8;
-                    border-left:5px solid green;
-                    white-space:pre-line;">
         </div>
 
     </div>
 
-    <div class="navigation">
+    <h3 id="category"></h3>
 
-        <button onclick="startExam()">
-            Neue SAP
-        </button>
-
-        <button onclick="showAnswer()">
-            Musterlösung anzeigen
-        </button>
-
-        <button onclick="nextQuestion()">
-            Nächste Frage →
-        </button>
-
+    <div
+        id="situation"
+        class="situation"
+        style="display:none;">
     </div>
+
+    <h2 id="question"></h2>
+
+    <div id="checkboxes"></div>
+
+</div>
+
+<div class="navigation">
+
+    <button
+        id="startBtn"
+        onclick="startExam()">
+
+        Neue SAP
+
+    </button>
+
+    <button
+        id="backBtn"
+        onclick="previousQuestion()"
+        disabled>
+
+        ← Zurück
+
+    </button>
+
+    <button
+        id="nextBtn"
+        onclick="nextQuestion()"
+        disabled>
+
+        Weiter →
+
+    </button>
+
+</div>
 
 </main>
 
@@ -84,7 +89,7 @@
 <script src="generator.js"></script>
 <script src="storage.js"></script>
 <script src="app.js"></script>
-    
+
 </body>
 
 </html>
