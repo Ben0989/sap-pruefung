@@ -560,7 +560,7 @@ const questions = [
     question: "Wann wird 10.99 verwendet?",
     answers: [
         "Officer verletzt",
-        "Officer in unmittelbarer Gefahr"
+        "Officer in unmittelbarer Gefahr",
         "10.20"
     ]
 },
