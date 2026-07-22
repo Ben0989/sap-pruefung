@@ -356,18 +356,17 @@ function finishExam() {
         );
 
     saveExam(
-
-        studentName,
-
-        reachedPoints,
-
-        maxPoints,
-
-        percent,
-
-        passed
-
-    );
+    studentName,
+    examinerName,
+    reachedPoints,
+    maxPoints,
+    percent,
+    passed,
+    startTime.toLocaleString("de-DE"),
+    endTime.toLocaleString("de-DE"),
+    duration,
+    mistakes
+);
 
     let errorHTML = "";
 
