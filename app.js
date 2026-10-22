@@ -6,6 +6,7 @@
     const number = new Intl.NumberFormat("de-DE", {maximumFractionDigits: 2});
     const escape = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
     const fmt = value => number.format(value);
+    let questionBank = [];
     let active = null;
     let currentResult = null;
     let resultSaved = false;
@@ -72,13 +73,13 @@
             <div class="homeGrid"><section class="panel"><h3>Prüfungsdaten</h3><form id="startForm">
             <label for="studentName">Name des Prüflings</label><input id="studentName" name="student" autocomplete="off" maxlength="120" required value="${escape(defaults.student)}" placeholder="Vor- und Nachname">
             <label for="examinerName">Name des Prüfers</label><input id="examinerName" name="examiner" autocomplete="off" maxlength="120" required value="${escape(defaults.examiner)}" placeholder="Vor- und Nachname">
-            <p class="muted">${repeatQuestions ? "Es werden dieselben Fragen in derselben Reihenfolge erneut geprüft." : `${SAPEngine.count} zufällige Fragen aus dem Katalog mit ${questions.length} Fragen.`}</p>
+            <p class="muted">${repeatQuestions ? "Es werden dieselben Fragen in derselben Reihenfolge erneut geprüft." : `${SAPEngine.count} zufällige Fragen aus dem Katalog mit ${questionBank.length} Fragen.`}</p>
             <button type="submit" id="startBtn" ${draftError ? "disabled" : ""}>${repeatQuestions ? "Wiederholung starten" : "SAP starten"} <span aria-hidden="true">→</span></button>
             ${repeatQuestions ? button("cancel-repeat", "Andere SAP erstellen", "", "secondary") : ""}</form></section>
             <aside class="panel"><div class="panelTitle"><h3>Prüfungsrahmen</h3><span class="tag">${repeatQuestions?.length || SAPEngine.count} Fragen</span></div><ul class="blueprint">${repeatQuestions ? `<li>Originalfragen der gewählten Prüfung</li>` : breakdown}</ul><p class="threshold">Bestanden ab <strong>80 %</strong></p><p class="muted">Erwartete Antworten sind für den Ausbilder direkt sichtbar. Nicht angehakte Antworten zählen als fehlend.</p></aside></div>`, focus);
     }
-    function start(form) {
-        if (active || busy || draftError) return;
+    async function start(form) {
+        if (!SAPAccess.user || active || busy || draftError) return;
         const student = form.elements.student.value.trim();
         const examiner = form.elements.examiner.value.trim();
         if (!student || !examiner) {
@@ -86,18 +87,19 @@
             document.getElementById(!student ? "studentName" : "examinerName").focus();
             return;
         }
-        // Validate before replacing the start form or setting any active state.
-        const selected = repeatQuestions ? SAPEngine.clone(SAPEngine.validateQuestions(repeatQuestions)) : SAPEngine.generate(questions);
-        active = {version: 3, id: SAPStorage.uid(), status: "active", student, examiner,
-            startTime: new Date().toISOString(), endTime: null, index: 0,
-            questions: selected, answersGiven: selected.map(() => [])};
-        defaults = {student: "", examiner};
-        repeatQuestions = null;
-        currentResult = null;
-        resultSaved = false;
-        message("");
-        saveDraft();
-        showQuestion();
+        busy = true;
+        const startingUser = SAPAccess.user.id;
+        try {
+            if (!repeatQuestions) questionBank = await SAPAccess.questions();
+            if (SAPAccess.user?.id !== startingUser) return;
+            const selected = repeatQuestions ? SAPEngine.clone(SAPEngine.validateQuestions(repeatQuestions)) : SAPEngine.generate(questionBank);
+            active = {version: 3, id: SAPStorage.uid(), status: "active", student, examiner,
+                startTime: new Date().toISOString(), endTime: null, index: 0,
+                questions: selected, answersGiven: selected.map(() => [])};
+            defaults = {student: "", examiner};
+            repeatQuestions = null; currentResult = null; resultSaved = false;
+            message(""); saveDraft(); showQuestion();
+        } finally { busy = false; }
     }
     function showQuestion() {
         if (!active || active.status !== "active") return;
@@ -210,7 +212,7 @@
         showResult(record, true);
     }
     async function handle(action, target) {
-        if (busy) return;
+        if (!SAPAccess.user || busy) return;
         switch (action) {
             case "home": home(); break;
             case "saved": saved(); break;
@@ -279,16 +281,16 @@
     document.addEventListener("submit", event => {
         if (event.target.id !== "startForm") return;
         event.preventDefault();
-        try { start(event.target); } catch (error) { reportError(error); }
+        start(event.target).catch(reportError);
     });
     document.addEventListener("change", event => {
-        if (event.target.matches('#checkboxes input')) {
+        if (SAPAccess.user && event.target.matches('#checkboxes input')) {
             try { updateAnswer(); } catch (error) { reportError(error); }
         }
     });
     document.getElementById("importFile").addEventListener("change", async event => {
         const file = event.target.files[0];
-        if (!file) return;
+        if (!file || !SAPAccess.user) return;
         try {
             if (file.size > 5 * 1024 * 1024) throw new Error("Die JSON-Datei ist größer als 5 MB.");
             let data;
@@ -306,6 +308,7 @@
         }
     });
     window.addEventListener("storage", event => {
+        if (!SAPAccess.user) return;
         if (event.key === SAPStorage.key) {
             try { if (view === "stats") statistics(); else if (view === "saved") saved(); }
             catch (error) { reportError(error); }
@@ -332,8 +335,9 @@
             }
         }
     }
+    function initialize() {
     try {
-        SAPEngine.validateQuestions(questions);
+        SAPEngine.validateQuestions(questionBank);
         try {
             active = SAPStorage.loadDraft();
             if (active?.status === "completed") {
@@ -351,4 +355,18 @@
         app.innerHTML = '<section class="panel"><h2>Prüfung kann nicht gestartet werden</h2><p>Der Fragenkatalog oder eine Programmdatei konnte nicht geladen werden. Bitte lade die Seite vollständig neu.</p></section>';
         reportError(error);
     }
+    }
+    SAPAccess.init(async user => {
+        SAPStorage.setUser(user.id, user.role === 'admin');
+        defaults.examiner = user.display_name || user.username;
+        questionBank = await SAPAccess.questions();
+        initialize();
+    }, () => {
+        active = null; currentResult = null; resultSaved = false; draftError = false;
+        busy = false; repeatQuestions = null; questionBank = []; view = "home";
+        defaults = {student: "", examiner: ""}; message("");
+    }).catch(reportError);
+    window.addEventListener('sap-questions-updated', () => {
+        SAPAccess.questions().then(bank => { questionBank = bank; }).catch(reportError);
+    });
 })();

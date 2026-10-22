@@ -180,8 +180,17 @@ test('empty statistics contain finite zeros', () => {
 test('asset paths stay relative for GitHub Pages subdirectory deployments', () => {
     const html = fs.readFileSync(path.join(root,'index.html'),'utf8');
     const assets = [...html.matchAll(/(?:src|href)="([^"#][^"]*)"/g)].map(m => m[1]).filter(p => !p.startsWith('data:'));
-    assert.equal(assets.length, 5);
+    assert.equal(assets.length, 6);
     for (const asset of assets) assert.ok(asset.startsWith('./'));
     assert.ok(html.indexOf('storage.js') < html.indexOf('app.js'));
-    assert.equal((html.match(/<script defer/g)||[]).length,4);
+    assert.equal((html.match(/<script defer/g)||[]).length,5);
+});
+
+test('teacher archives are isolated; admin can adopt legacy results', async () => {
+    const {storage} = runtime({sap_exams:JSON.stringify([{id:1,student:'Alt',points:4,maxPoints:5}])});
+    const a='00000000-0000-4000-8000-000000000001',b='00000000-0000-4000-8000-000000000002';
+    storage.setUser(a,false);assert.equal(storage.load().length,0);await storage.save(result('own-a'));
+    storage.setUser(b,false);assert.equal(storage.load().length,0);await storage.save(result('own-b'));
+    storage.setUser(a,false);assert.equal(storage.load()[0].id,'own-a');
+    storage.setUser('00000000-0000-4000-8000-000000000003',true);assert.equal(storage.load()[0].student,'Alt');
 });

@@ -899,3 +899,33 @@ footer span {
     .tableWrap td::before { content:attr(data-label); font-weight:500; font-size:.72rem; color:var(--muted); margin-bottom:5px; }
     .pageHeading p, .resultPanel p { overflow-wrap:anywhere; }
 }
+
+/* Authentication and shared question administration. */
+input[type=password],input[type=search],textarea,select {
+    width:100%; min-width:0; padding:13px; border:1px solid #b5c4d5;
+    border-radius:8px; background:#fff; color:var(--ink); font:inherit; min-height:48px;
+}
+textarea { resize:vertical; }
+textarea:focus-visible,select:focus-visible { outline:3px solid #d38e16; outline-offset:3px; }
+.loginPanel { max-width:480px; margin:42px auto; }
+.loginHint { margin:25px 0 0; }
+.mainNav { flex-wrap:wrap; }
+.mainNav button { flex:0 1 auto; }
+.mainNav #logoutNav { margin-left:auto; }
+.formGrid,.changeGrid { display:grid; grid-template-columns:1fr 1fr; gap:22px; }
+.changeGrid { margin-top:22px; }
+.changeGrid > section { min-width:0; padding:18px; background:#f4f7fb; border-radius:8px; }
+.changeGrid h4,.changeGrid p,.changeGrid li { overflow-wrap:anywhere; white-space:pre-line; }
+.changeCard details[open] summary { margin-bottom:0; }
+.changeCard .actions,.questionCard .actions { margin-top:20px; }
+.questionCard details { margin:18px 0; }
+.questionCard li { white-space:pre-line; overflow-wrap:anywhere; }
+.filterPanel label { display:block; font-weight:600; margin:12px 0 6px; }
+.filterPanel p { margin:15px 0 0; }
+.userCard h3,.userCard p { margin:0; overflow-wrap:anywhere; }
+@media(max-width:720px) {
+    .mainNav button { flex:1 1 calc(33.333% - 8px); }
+    .mainNav #logoutNav { margin-left:0; }
+    .formGrid,.changeGrid { grid-template-columns:minmax(0,1fr); gap:14px; }
+    .loginPanel { margin:25px auto; }
+}

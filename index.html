@@ -7,22 +7,27 @@
     <meta name="description" content="SAP-Prüfungen für das Police Department Glendale: durchführen, lokal speichern und auswerten.">
     <title>SAP Prüfungsgenerator · PD Glendale</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="./style.css?v=3.0.0">
-    <script defer src="./questions.js?v=3.0.0"></script>
-    <script defer src="./generator.js?v=3.0.0"></script>
-    <script defer src="./storage.js?v=3.0.0"></script>
-    <script defer src="./app.js?v=3.0.0"></script>
+    <link rel="stylesheet" href="./style.css?v=4.0.0">
+    <script defer src="./config.js?v=4.0.0"></script>
+    <script defer src="./generator.js?v=4.0.0"></script>
+    <script defer src="./storage.js?v=4.0.0"></script>
+    <script defer src="./access.js?v=4.0.0"></script>
+    <script defer src="./app.js?v=4.0.0"></script>
 </head>
 <body>
     <a class="skipLink" href="#app">Zum Inhalt</a>
     <header class="siteHeader">
         <div class="brand"><span class="brandMark" aria-hidden="true">PD</span><div><p class="eyebrow">GLENDALE · SCHULUNGSABTEILUNG</p><h1>SAP Prüfungsgenerator</h1></div></div>
-        <span class="version">Ausbilder-Ansicht</span>
+        <span class="version" id="userBadge">Geschützter Ausbilderbereich</span>
     </header>
-    <nav class="mainNav" aria-label="Hauptnavigation">
+    <nav class="mainNav" aria-label="Hauptnavigation" hidden>
         <button type="button" data-action="home" id="homeNav" aria-current="page">Neue SAP</button>
         <button type="button" data-action="saved" id="savedNav">Gespeicherte SAPs</button>
         <button type="button" data-action="stats" id="statsNav">Statistik</button>
+        <button type="button" data-access="questions" id="questionsNav">Fragen</button>
+        <button type="button" data-access="users" id="usersNav" data-admin hidden>Benutzer</button>
+        <button type="button" data-access="changes" id="changesNav" data-admin hidden>Änderungen</button>
+        <button type="button" data-access="logout" id="logoutNav">Abmelden</button>
     </nav>
     <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
     <main id="app" tabindex="-1"><section class="panel"><h2>Anwendung wird geladen …</h2><p>Falls diese Meldung bestehen bleibt, lade die Seite neu und prüfe, ob JavaScript aktiviert ist.</p></section></main>

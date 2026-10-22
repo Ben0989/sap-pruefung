@@ -1,37 +1,34 @@
 # SAP Prüfungsgenerator
 
-Statische Ausbilder-Anwendung für das Police Department Glendale. Veröffentlichung über GitHub Pages direkt aus `main` / Repository-Wurzel. Die Anwendung benötigt zur Laufzeit nur die sechs HTML-, CSS- und JavaScript-Dateien.
+Mobile Ausbilder-Anwendung für das Police Department Glendale. GitHub Pages liefert die Oberfläche aus; Supabase Auth und die Edge Function `sap-generator-api` prüfen Anmeldungen und Berechtigungen und speichern den gemeinsamen Fragenkatalog.
 
-## Bedienung
+## Anmeldung und Rollen
 
-1. Namen des Prüflings und des Prüfers eingeben, SAP starten.
-2. Richtig genannte Antwortpunkte anhaken. Jeder Haken zählt einen Punkt. Vor-/Zurücknavigation erhält alle Bewertungen.
-3. Auf der letzten Frage abschließen. Das vollständige Ergebnis mit allen Fragen, Bewertungen, Zeiten und fehlenden Antworten wird lokal gespeichert.
-4. Im Archiv Prüfungen öffnen, wiederholen, löschen oder als JSON sichern. JSON-Sicherungen können auf einem anderen Gerät importiert werden.
+Der initial eingerichtete Benutzer heißt **Admin**. Sein Passwort wird ausschließlich bei Supabase Auth geprüft und steht nicht im Quellcode. Es gibt keine öffentliche Registrierung. Der Admin legt Lehrer über **Benutzer** an und kann deren Zugänge sperren, wieder freigeben und Passwörter zurücksetzen. Auch das eigene Adminpasswort kann dort geändert werden. Der Adminzugang kann nicht gesperrt werden.
 
-Der aktuelle GitHub-Stand verwendet 20 zufällige Fragen aus 75 Fragen: Verstoß 5, RP13 4, Greenzones 2, Funkcodes 3, Korruption 2, Intern 2 und Dienstvorschriften 2. Dieser neuere Stand ersetzt die widersprüchliche ältere 15-Fragen-Anzeige. Die Fragen und Antworten aus dem Repository wurden inhaltlich nicht verändert.
+Lehrer und Admin können unter **Fragen** alle aktiven Fragen durchsuchen, bearbeiten, löschen und neue Fragen anlegen. Die Eingabemaske enthält Kategorie, Frage, optionale Situation und erwartete Antwortpunkte. Eine Zeile entspricht einem Punkt. Änderungen gelten für neue Prüfungen; laufende und gespeicherte Prüfungen behalten ihre vollständige Momentaufnahme.
 
-Bestanden wird ab **exakt 80 %**; die Anzeige wird erst anschließend gerundet. Beispielsweise bleiben 51/64 Punkte (79,6875 %) nicht bestanden.
+Nur der Admin sieht **Änderungen**: Bearbeiter, Zeitpunkt, Aktion und Vorher-/Nachher-Zustand. Änderungen können wiederhergestellt werden. Auch Wiederherstellungen werden protokolliert. Gelöschte Fragen bleiben dafür versioniert gespeichert. Veraltete Bearbeitungen werden mit einem Konflikt abgelehnt. Die Mindestzahl je Kategorie verhindert, dass nach dem Löschen keine Prüfungen mehr erzeugt werden können.
 
-## Speicherung und Wiederherstellung
+## Prüfungen
 
-Ergebnisse liegen ausschließlich im lokalen Browserprofil, nicht im GitHub-Repository. Eine laufende Prüfung wird nach jeder Bewertung und Navigation zwischengespeichert und nach Neuladen wiederhergestellt. Bei gesperrtem oder vollem Speicher bleibt das Ergebnis auf der geöffneten Seite verfügbar; erneutes Speichern und JSON-Export sind möglich.
+20 zufällige Fragen: Verstoß 5, RP13 4, Greenzones 2, Funkcodes 3, Korruption 2, Intern 2 und Dienstvorschriften 2. Jeder richtig genannte und angehakte Antwortpunkt zählt einen Punkt. Bestanden ab exakt **80 %**, ohne vorheriges Runden. Die 75 ursprünglichen Fragen wurden zentral übernommen.
 
-Das neue Archiv verwendet `sap_pruefung_archive_v3`, der Zwischenstand `sap_pruefung_draft_v3`. Die bisherigen Schlüssel `sap_exams` und `sap_pruefungen` werden beim ersten Schreiben übernommen; ihre Originaldaten bleiben erhalten. Alte Ergebnisse ohne Fragen-/Antwortdaten erscheinen in Gesamt- und Prüferstatistiken, jedoch nicht in Kategorie- und Fehlerquoten. Fehlende historische Einzelantworten können nicht rekonstruiert werden.
+Ergebnisse und Zwischenstände bleiben lokal und sind nach Benutzer getrennt. Beim Admin werden vorhandene lokale Daten der bisherigen Version übernommen. Neuladen und Ab-/Anmelden stellen eine laufende Prüfung wieder her. JSON-Sicherung und Import unterstützen den Gerätewechsel. Bei Speicherfehlern bleibt das Ergebnis geöffnet und kann erneut gespeichert oder als JSON gesichert werden.
 
-Beschädigte Archive werden nicht stillschweigend überschrieben. Die Oberfläche bietet Rohdatensicherung und ein ausdrücklich bestätigtes Zurücksetzen. Ergebnisse können anschließend erneut gespeichert werden. JSON-Sicherungen regelmäßig herunterladen, insbesondere vor einem Browser- oder Gerätewechsel.
+Die Statistik enthält Anzahl, Bestanden/Nicht bestanden, Bestehensquote, Durchschnitt, Kategorieauswertung, häufigste Fehlerfragen und Prüferwerte. Ältere Ergebnisse ohne vollständige Antworten werden nur in den berechenbaren Gesamt- und Prüferwerten berücksichtigt.
 
-## Statistik
+## Backend
 
-Anzahl, bestanden/nicht bestanden, Bestehensquote, Durchschnittspunkte und Durchschnittsprozent; Kategorien nach erreichtem Anteil der möglichen Punkte; häufigste Fehlerfragen einschließlich Häufigkeit und fehlender Punkte; Prüferstatistik und letzte Prüfungen. Gelöschte Ergebnisse fallen aus allen Berechnungen heraus.
+`config.js` enthält ausschließlich Projektadresse und öffentlichen Publishable Key. `backend/index.ts` enthält die Edge Function, `backend/schema.sql` das Schema und die Startbefüllung. `questions.js` bleibt als ursprünglicher Fragenbestand für Tests und Wiederherstellung im Repository; die Anwendung lädt Fragen nach Anmeldung ausschließlich vom Backend.
 
-## Lokal ausführen und testen
+Dedizierte Tabellen: `sapg_users`, `sapg_questions`, `sapg_changes`. RLS ist aktiviert und direkter Zugriff für `anon` und `authenticated` entzogen. Die Edge Function prüft bei jeder Anfrage Benutzer, aktive Rolle und die tatsächliche Auth-Sitzung. Ein ausschließlich für `service_role` zugänglicher RPC prüft Sitzungserstellung und Widerrufsgrenze; dadurch umgehen aufgefrischte Tokens weder eine Sperre noch einen Passwortwechsel. Rollen werden nicht aus editierbaren Nutzermetadaten abgeleitet.
 
-```sh
-python3 -m http.server 8000
-```
+Fragenänderungen und Änderungsprotokoll werden in derselben Datenbanktransaktion geschrieben. Die Dienstschlüssel bleiben ausschließlich in der Edge-Umgebung. `verify_jwt=false` ist erforderlich, weil die Funktion die Supabase-Auth-Prüfung selbst durchführt; geschützte Aktionen setzen immer eine gültige Sitzung voraus.
 
-Dann `http://localhost:8000` öffnen. Für zuverlässige Browserspeicherung HTTP oder HTTPS verwenden.
+`backend/schema.sql` dokumentiert die bereits ausgeführten Migrationen und ist nicht für ein erneutes Anwenden auf dieselbe Datenbank bestimmt. Andere bestehende SAP-/BWG-Tabellen werden von dieser Anwendung nicht verändert.
+
+## Tests
 
 ```sh
 npm install
@@ -40,4 +37,13 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Die Browsertests bedienen die Anwendung auf einem lokalen HTTP-Server unter einem Repository-Unterpfad. Sie prüfen vollständige Prüfungen, Wiederaufnahme, Archiv, Statistik, JSON-Dateien, Fehlerbehandlung und Layouts mit 320, 390, 768 und 1440 Pixeln Breite. Optional kann ein vorhandener Chromium-Browser mit `TEST_BROWSER_EXECUTABLE_PATH` angegeben werden. Screenshots werden nur lokal unter `test-results/` erzeugt.
+Die Browserregressionstests verwenden isolierte Auth-Fixtures. Der zusätzliche Integrationstest verwendet echte, dafür eingerichtete QA-Zugänge:
+
+```sh
+SAP_INTEGRATION_ADMIN_PASSWORD=... \
+SAP_INTEGRATION_TEACHER_USERNAME=... \
+SAP_INTEGRATION_TEACHER_PASSWORD=... \
+npm run test:auth
+```
+
+Er startet einen lokalen HTTP-Server und prüft Anmeldung, Admin-Benutzeranlage, Lehrerrechte, Fragenmasken, Änderungsprotokoll, Wiederherstellung sowie Abmelden/Wiederaufnahme. Dabei werden QA-Datensätze erzeugt, die anschließend gezielt zu entfernen sind. Niemals Zugangsdaten committen. Screenshots liegen lokal unter `test-results/` und werden nicht versioniert. Ein vorhandener Chromium-Browser kann über `TEST_BROWSER_EXECUTABLE_PATH` angegeben werden.

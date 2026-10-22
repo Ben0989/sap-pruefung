@@ -6,8 +6,9 @@ const http = require('node:http');
 const {chromium} = require('playwright');
 const root = path.join(__dirname, '..');
 let server, browser, base;
-const key = 'sap_pruefung_archive_v3';
-const draftKey = 'sap_pruefung_draft_v3';
+const testUserId = '00000000-0000-4000-8000-000000000001';
+const key = 'sap_pruefung_archive_v3_' + testUserId;
+const draftKey = 'sap_pruefung_draft_v3_' + testUserId;
 const fixture = (id='fixture') => ({version:3,id,status:'active',student:'Testperson',examiner:'Testprüfer',startTime:'2026-10-22T14:00:00Z',endTime:null,index:0,
     questions:[{id:'A',category:'Testkategorie',question:'Testfrage?',answers:['Antwort 1','Antwort 2','Antwort 3','Antwort 4','Antwort 5']}],answersGiven:[[]]});
 
@@ -15,7 +16,7 @@ before(async () => {
     server = http.createServer((req,res) => {
         const url = new URL(req.url,'http://localhost');
         const relative = url.pathname.replace(/^\/sap-pruefung\//,'') || 'index.html';
-        if (relative.includes('..') || !['index.html','app.js','generator.js','storage.js','questions.js','style.css'].includes(relative)) { res.writeHead(404);res.end();return; }
+        if (relative.includes('..') || !['index.html','app.js','generator.js','storage.js','questions.js','style.css','config.js','access.js'].includes(relative)) { res.writeHead(404);res.end();return; }
         res.setHeader('Content-Type', relative.endsWith('.html')?'text/html;charset=utf-8':relative.endsWith('.css')?'text/css;charset=utf-8':'text/javascript;charset=utf-8');
         res.end(fs.readFileSync(path.join(root,relative)));
     });
@@ -29,9 +30,21 @@ async function session(storage = {}, options = {}) {
     const page = await context.newPage();
     const errors=[]; page.on('pageerror', error => errors.push(error.message));
     page.on('dialog', dialog => dialog.accept());
+    const fixtureBank = require('node:vm').runInNewContext(fs.readFileSync(path.join(root,'questions.js'),'utf8')+'; questions');
+    await page.route('https://roqvdfjbxxiymhhfwlvp.supabase.co/**', async route => {
+        const body=JSON.parse(route.request().postData() || '{}');
+        let data;
+        if(route.request().url().includes('/auth/')) data={access_token:'fixture-token',refresh_token:'fixture-refresh',expires_in:3600};
+        else if(body.action==='me') data={user:{id:testUserId,username:'Admin',display_name:'Testprüfer',role:'admin',active:true}};
+        else if(body.action==='questions') data={questions:fixtureBank};
+        else data={};
+        await route.fulfill({json:data});
+    });
+    await page.addInitScript(() => sessionStorage.setItem('sap_generator_session_v1',JSON.stringify({access_token:'fixture-token',refresh_token:'fixture-refresh',expires_at:9999999999})));
     await page.goto(base);
     await page.evaluate(entries => {for(const [k,v] of Object.entries(entries))localStorage.setItem(k,v)}, storage);
     if (Object.keys(storage).length) await page.reload();
+    await page.waitForFunction(()=>document.querySelector('#startBtn,#counter,#saveStatus,#loginForm'));
     return {page,context,errors};
 }
 async function click(page, action){await page.locator(`button[data-action="${action}"]`).first().click();}
@@ -93,7 +106,7 @@ test('complete full-marks exam; repeat uses same questions and creates a new res
 });
 test('failed archive write keeps completed result; reload and retry save exactly once', async()=>{
     const {page,context,errors}=await session({[draftKey]:JSON.stringify(fixture())});
-    await page.addInitScript(()=>{const original=Storage.prototype.setItem;window.restoreStorage=()=>{Storage.prototype.setItem=original};Storage.prototype.setItem=function(key,value){if(key==='sap_pruefung_archive_v3')throw new DOMException('Full','QuotaExceededError');return original.call(this,key,value)};});
+    await page.addInitScript(()=>{const original=Storage.prototype.setItem;window.restoreStorage=()=>{Storage.prototype.setItem=original};Storage.prototype.setItem=function(key,value){if(key.startsWith('sap_pruefung_archive_v3'))throw new DOMException('Full','QuotaExceededError');return original.call(this,key,value)};});
     await page.reload();await page.locator('#checkboxes input').first().check();await complete(page);
     assert.match(await page.locator('#saveStatus').textContent(),/Noch nicht/);assert.equal((await records(page)).length,0);
     await click(page,'stats');await click(page,'home');assert.match(await page.locator('#saveStatus').textContent(),/Noch nicht/);
@@ -107,7 +120,7 @@ test('failed archive write keeps completed result; reload and retry save exactly
 test('storage access denied still allows an exam and JSON export without closing result',async()=>{
     const {page,context,errors}=await session();
     await page.addInitScript(()=>{Storage.prototype.getItem=function(){throw new DOMException('Blocked','SecurityError')};Storage.prototype.setItem=function(){throw new DOMException('Blocked','SecurityError')};});
-    await page.reload();await start(page);await complete(page);
+    await page.reload();await page.getByLabel('Benutzername',{exact:true}).fill('Admin');await page.getByLabel('Passwort',{exact:true}).fill('FixturePass123');await page.getByRole('button',{name:'Anmelden',exact:true}).click();await start(page);await complete(page);
     assert.match(await page.locator('#saveStatus').textContent(),/Noch nicht/);
     const download=page.waitForEvent('download');await click(page,'export-result');
     assert.equal((await download).suggestedFilename(),'SAP-Ergebnis.json');
@@ -159,9 +172,10 @@ test('cancel keeps draft when dismissed and discards only after confirmation',as
     page.once('dialog',d=>d.accept());await click(page,'cancel-exam');
     assert.equal(await page.locator('#startBtn').count(),1);assert.equal(await page.evaluate(k=>localStorage.getItem(k),draftKey),null);await context.close();
 });
-test('missing question script reports startup failure rather than a dead start button',async()=>{
-    const {page,context}=await session();await page.route('**/questions.js*',route=>route.fulfill({body:'',contentType:'text/javascript'}));await page.reload();
-    assert.equal(await page.getByRole('heading',{name:'Prüfung kann nicht gestartet werden'}).count(),1);await context.close();
+test('question service error is surfaced without exposing an unprotected exam',async()=>{
+    const {page,context}=await session();
+    await page.route('**/functions/v1/sap-generator-api',async route=>{const body=JSON.parse(route.request().postData()||'{}');await route.fulfill(body.action==='questions'?{status:503,json:{error:'Fragenservice nicht erreichbar.'}}:{json:{user:{id:testUserId,username:'Admin',display_name:'Testprüfer',role:'admin',active:true}}});});
+    await page.reload();await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('Fragenservice'));assert.match(await page.locator('#notice').textContent(),/Fragenservice/);assert.equal(await page.locator('#counter').count(),0);await context.close();
 });
 test('responsive home, 16-answer question, result, archive and dashboard at 320–1440 px',async()=>{
     const {page,context,errors}=await session();

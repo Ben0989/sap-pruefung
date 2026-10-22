@@ -1,8 +1,15 @@
 "use strict";
 
 const SAPStorage = (() => {
-    const key = "sap_pruefung_archive_v3";
-    const draftKey = "sap_pruefung_draft_v3";
+    const baseKey = "sap_pruefung_archive_v3";
+    const baseDraftKey = "sap_pruefung_draft_v3";
+    let key = baseKey, draftKey = baseDraftKey, useLegacy = true;
+    function setUser(id, admin = false) {
+        if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("Ungültige Benutzerkennung.");
+        key = baseKey + '_' + id;
+        draftKey = baseDraftKey + '_' + id;
+        useLegacy = admin;
+    }
     const legacyKeys = ["sap_exams", "sap_pruefungen"];
     const lockName = "sap-pruefung-archive";
     const clone = SAPEngine.clone;
@@ -76,7 +83,7 @@ const SAPStorage = (() => {
         return result;
     }
     function load() {
-        const current = read(key);
+        const current = read(key) ?? (useLegacy && key !== baseKey ? read(baseKey) : null);
         let records;
         if (current !== null) {
             const data = parse(current, "Archiv");
@@ -84,7 +91,7 @@ const SAPStorage = (() => {
             records = normalizeList(data.exams, "archive");
         } else {
             records = [];
-            for (const legacyKey of legacyKeys) {
+            for (const legacyKey of (useLegacy ? legacyKeys : [])) {
                 const raw = read(legacyKey);
                 if (raw === null) continue;
                 const rows = normalizeList(parse(raw, legacyKey), legacyKey);
@@ -156,19 +163,21 @@ const SAPStorage = (() => {
         return clone(draft);
     }
     function loadDraft() {
-        const raw = read(draftKey);
+        const raw = read(draftKey) ?? (useLegacy && draftKey !== baseDraftKey ? read(baseDraftKey) : null);
         return raw === null ? null : validateDraft(parse(raw, "laufende Prüfung"));
     }
     function saveDraft(draft) { write(draftKey, validateDraft(draft)); }
     function removeDraft(id) {
-        const raw = read(draftKey);
-        if (raw === null) return;
-        if (id != null && parse(raw, "laufende Prüfung").id !== id) return;
-        try { localStorage.removeItem(draftKey); }
-        catch { throw new Error("Die laufende Prüfung konnte nicht aus dem Browserspeicher entfernt werden."); }
+        for (const name of [draftKey, ...(useLegacy && draftKey !== baseDraftKey ? [baseDraftKey] : [])]) {
+            const raw = read(name);
+            if (raw === null) continue;
+            if (id != null && parse(raw, "laufende Prüfung").id !== id) continue;
+            try { localStorage.removeItem(name); }
+            catch { throw new Error("Die laufende Prüfung konnte nicht aus dem Browserspeicher entfernt werden."); }
+        }
     }
     function rawBackup() {
-        return Object.fromEntries([key, draftKey, ...legacyKeys].map(k => [k, read(k)]));
+        return Object.fromEntries([key, draftKey, ...(useLegacy ? [baseKey, baseDraftKey, ...legacyKeys] : [])].map(k => [k, read(k)]));
     }
-    return Object.freeze({key, draftKey, uid, normalize, load, save, remove, clear, resetArchive, importData, envelope, loadDraft, saveDraft, removeDraft, rawBackup});
+    return Object.freeze({get key() { return key; }, get draftKey() { return draftKey; }, setUser, uid, normalize, load, save, remove, clear, resetArchive, importData, envelope, loadDraft, saveDraft, removeDraft, rawBackup});
 })();
