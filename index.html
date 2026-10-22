@@ -1,121 +1,33 @@
 <!DOCTYPE html>
 <html lang="de">
-
 <head>
-
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>SAP Prüfungsgenerator</title>
-
-    <link rel="stylesheet" href="style.css">
-
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#102d4f">
+    <meta name="description" content="SAP-Prüfungen für das Police Department Glendale: durchführen, lokal speichern und auswerten.">
+    <title>SAP Prüfungsgenerator · PD Glendale</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="./style.css?v=3.0.0">
+    <script defer src="./questions.js?v=3.0.0"></script>
+    <script defer src="./generator.js?v=3.0.0"></script>
+    <script defer src="./storage.js?v=3.0.0"></script>
+    <script defer src="./app.js?v=3.0.0"></script>
 </head>
-
 <body>
-
-<header>
-
-    <h1>SAP Prüfungsgenerator</h1>
-
-</header>
-
-<main>
-
-<div class="questionBox">
-
-    <div class="top">
-
-        <input
-            id="studentName"
-            type="text"
-            placeholder="Name des Prüflings">
-
-        <div id="counter">
-
-            Frage 0 / 15
-
-        </div>
-
-    </div>
-
-    <h3 id="category"></h3>
-
-    <div
-        id="situation"
-        class="situation"
-        style="display:none;">
-    </div>
-
-    <h2 id="question"></h2>
-
-    <div id="checkboxes"></div>
-
-</div>
-
-<div class="navigation">
-
-    <button
-        id="startBtn"
-        onclick="startExam()">
-
-        Neue SAP
-
-    </button>
-    
-    <button id="savedBtn" onclick="showSavedExams()">
-    Gespeicherte SAPs
-    </button>
-    
-    <button onclick="showStatistics()">
-    Statistik
-    </button>
-    
-    <button
-        id="backBtn"
-        onclick="previousQuestion()"
-        disabled>
-
-        ← Zurück
-
-    </button>
-
-    <button
-        id="nextBtn"
-        onclick="nextQuestion()"
-        disabled>
-
-        Weiter →
-
-    </button>
-
-</div>
-
-<div id="savedExams" style="display:none;">
-
-    <h2>Gespeicherte SAPs</h2>
-
-    <div id="savedExamList"></div>
-
-    <br>
-
-    <button onclick="hideSavedExams()">
-        Zurück
-    </button>
-
-    <button onclick="deleteAllExams()">
-        Alle löschen
-    </button>
-
-</div>
-
-</main>
-
-<script src="questions.js"></script>
-<script src="generator.js"></script>
-<script src="storage.js"></script>
-<script src="app.js"></script>
-
+    <a class="skipLink" href="#app">Zum Inhalt</a>
+    <header class="siteHeader">
+        <div class="brand"><span class="brandMark" aria-hidden="true">PD</span><div><p class="eyebrow">GLENDALE · SCHULUNGSABTEILUNG</p><h1>SAP Prüfungsgenerator</h1></div></div>
+        <span class="version">Ausbilder-Ansicht</span>
+    </header>
+    <nav class="mainNav" aria-label="Hauptnavigation">
+        <button type="button" data-action="home" id="homeNav" aria-current="page">Neue SAP</button>
+        <button type="button" data-action="saved" id="savedNav">Gespeicherte SAPs</button>
+        <button type="button" data-action="stats" id="statsNav">Statistik</button>
+    </nav>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <main id="app" tabindex="-1"><section class="panel"><h2>Anwendung wird geladen …</h2><p>Falls diese Meldung bestehen bleibt, lade die Seite neu und prüfe, ob JavaScript aktiviert ist.</p></section></main>
+    <noscript><p class="notice">Für den Prüfungsgenerator muss JavaScript aktiviert sein.</p></noscript>
+    <footer>PD Glendale · SAP <span>Ergebnisse bleiben in diesem Browser. JSON-Sicherungen ermöglichen den Wechsel auf ein anderes Gerät.</span></footer>
+    <input id="importFile" type="file" accept=".json,application/json" hidden>
 </body>
-
 </html>

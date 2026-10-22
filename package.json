@@ -1,0 +1,12 @@
+{
+  "name": "sap-pruefungsgenerator",
+  "version": "3.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/core.test.cjs",
+    "test:browser": "node --test tests/browser.test.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
