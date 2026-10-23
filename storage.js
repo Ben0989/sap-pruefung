@@ -1,33 +1,18 @@
 "use strict";
 
 const SAPStorage = (() => {
-    const baseKey = "sap_pruefung_archive_v3";
-    const baseDraftKey = "sap_pruefung_draft_v3";
-    let key = baseKey, draftKey = baseDraftKey, useLegacy = true;
-    function setUser(id, admin = false) {
-        if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("Ungültige Benutzerkennung.");
-        key = baseKey + '_' + id;
-        draftKey = baseDraftKey + '_' + id;
-        useLegacy = admin;
-    }
-    const legacyKeys = ["sap_exams", "sap_pruefungen"];
-    const lockName = "sap-pruefung-archive";
-    const clone = SAPEngine.clone;
-    const uid = () => globalThis.crypto?.randomUUID?.() || `sap-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const text = (value, fallback = "") => typeof value === "string" ? value : fallback;
-
-    function read(keyName) {
-        try { return localStorage.getItem(keyName); }
-        catch { throw new Error("Der Browser erlaubt keinen Zugriff auf den lokalen Speicher."); }
-    }
-    function write(keyName, value) {
-        try { localStorage.setItem(keyName, JSON.stringify(value)); }
-        catch { throw new Error("Speichern fehlgeschlagen: Der Browserspeicher ist voll oder gesperrt. Bitte die JSON-Datei sichern und erneut versuchen."); }
-    }
-    function parse(raw, label) {
-        try { return JSON.parse(raw); }
-        catch { throw new Error(`Die gespeicherten Daten (${label}) sind beschädigt. Sie wurden nicht überschrieben. Bitte zuerst die Rohdaten sichern.`); }
-    }
+    const baseKey = 'sap_pruefung_archive_v3', baseDraftKey = 'sap_pruefung_draft_v3';
+    const legacyKeys = ['sap_exams','sap_pruefungen'];
+    const clone=SAPEngine.clone;
+    const text=(value,fallback='')=>typeof value==='string'?value:fallback;
+    const uid=()=>globalThis.crypto?.randomUUID?.()||`sap-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let userId='',isAdmin=false,cache=[],revision=0,epoch=0,draftQueue=Promise.resolve();
+    function setUser(id,admin=false){if(!/^[0-9a-f-]{36}$/i.test(id))throw Error('Ungültige Benutzerkennung.');userId=id;isAdmin=admin;cache=[];revision=0;epoch++;draftQueue=Promise.resolve();}
+    function read(name){try{return localStorage.getItem(name);}catch{throw Error('Der Browser erlaubt keinen Zugriff auf vorhandene Gerätedaten.');}}
+    function parse(raw,label){try{return JSON.parse(raw);}catch{throw Error(`Die Gerätedaten (${label}) sind beschädigt und wurden nicht gelöscht.`);}}
+    function removeLocal(name,raw){if(read(name)!==raw)throw Error('Der lokale Bestand wurde während der Übertragung geändert. Er bleibt für einen erneuten Abgleich erhalten.');localStorage.removeItem(name);}
+    function checkSession(expected){if(expected!==epoch||!userId)throw Error('Die Sitzung wurde gewechselt. Bitte erneut öffnen.');}
+    const api=(action,body={})=>SAPAccess.api(action,body);
     function numeric(value) {
         return typeof value === "number" || (typeof value === "string" && value.trim()) ? Number(value) : NaN;
     }
@@ -73,111 +58,90 @@ const SAPStorage = (() => {
             startTime: text(record.startTime), endTime: text(record.endTime),
             created: text(record.created || record.date),
             durationSeconds: Number.isFinite(durationSeconds) && durationSeconds >= 0 ? durationSeconds : null,
-            mistakes, ...(snapshot || {})
+            mistakes, ...(snapshot || {}), ...(typeof record.sourceId === "string" ? {sourceId:record.sourceId} : {}), ...(typeof record.ownerId === "string" ? {ownerId:record.ownerId,canDelete:record.canDelete === true} : {})
         };
     }
     function normalizeList(records, source) {
         if (!Array.isArray(records)) throw new Error("Das Prüfungsarchiv ist keine gültige Liste. Vorhandene Daten wurden nicht verändert.");
         const result = records.map((record, index) => normalize(record, index, source));
-        if (new Set(result.map(record => record.id)).size !== result.length) throw new Error("Doppelte Prüfungskennungen im Archiv. Bitte zuerst die Rohdaten sichern.");
         return result;
     }
-    function load() {
-        const current = read(key) ?? (useLegacy && key !== baseKey ? read(baseKey) : null);
-        let records;
-        if (current !== null) {
-            const data = parse(current, "Archiv");
-            if (data?.version !== 3 || data?.format !== "sap-pruefung") throw new Error("Das Archivformat wird nicht unterstützt. Vorhandene Daten wurden nicht verändert.");
-            records = normalizeList(data.exams, "archive");
-        } else {
-            records = [];
-            for (const legacyKey of (useLegacy ? legacyKeys : [])) {
-                const raw = read(legacyKey);
-                if (raw === null) continue;
-                const rows = normalizeList(parse(raw, legacyKey), legacyKey);
-                rows.forEach(record => {
-                    if (records.some(e => e.id === record.id)) record.id = `${legacyKey}-${record.id}`;
-                    records.push(record);
-                });
-            }
+    const envelope=records=>({format:'sap-pruefung',version:3,exams:records});
+    function load(){return clone(cache).sort((a,b)=>dateSort(b)-dateSort(a));}
+    async function refresh(){
+        const current=epoch,records=[];let offset=0,more;
+        do{checkSession(current);const data=await api('list_exams',{offset});checkSession(current);records.push(...data.exams);more=data.has_more;offset+=data.exams.length;if(more&&!data.exams.length)throw Error('Das Archiv konnte nicht vollständig geladen werden.');}while(more);
+        cache=normalizeList(records,'cloud');return load();
+    }
+    async function send(records){
+        const current=epoch;let added=0;const result=[];
+        for(let i=0;i<records.length;i+=20){
+            checkSession(current);const batch=records.slice(i,i+20);
+            const data=await api('store_exams',{exams:batch});checkSession(current);
+            if(!Array.isArray(data.receipts)||data.receipts.length!==batch.length||data.receipts.some((receipt,i)=>receipt.sourceId!==(batch[i].sourceId||batch[i].id)))throw Error('Supabase hat die Übernahme nicht vollständig bestätigt. Die Gerätedaten bleiben erhalten.');
+            added+=data.added;result.push(...data.exams);
         }
-        return records.sort((a, b) => dateSort(b) - dateSort(a));
+        return {added,exams:result};
     }
-    const envelope = records => ({format: "sap-pruefung", version: 3, exams: records});
-    function locked(task) {
-        if (globalThis.navigator?.locks?.request) return navigator.locks.request(lockName, task);
-        return Promise.resolve().then(task);
+    async function save(record){
+        const result=await send([normalize(record)]);
+        if(!result.exams.length)throw Error('Diese SAP wurde bereits zentral gelöscht und wird nicht erneut angelegt.');
+        const saved=normalize(result.exams[0]);cache=cache.filter(e=>e.id!==saved.id);cache.unshift(saved);return clone(saved);
     }
-    function save(record) {
-        return locked(() => {
-            const normalized = normalize(record);
-            const records = load();
-            const index = records.findIndex(e => e.id === normalized.id);
-            if (index >= 0) records[index] = normalized;
-            else records.unshift(normalized);
-            write(key, envelope(records));
-            return normalized;
-        });
-    }
-    function remove(id) {
-        return locked(() => write(key, envelope(load().filter(e => e.id !== String(id)))));
-    }
-    function clear() {
-        // Keep an empty canonical archive so legacy backups are not re-imported.
-        return locked(() => { load(); write(key, envelope([])); });
-    }
-    function resetArchive() {
-        // Explicit recovery only; original legacy bytes remain available in rawBackup().
-        return locked(() => write(key, envelope([])));
-    }
-    function importData(data) {
+    async function remove(id){await api('delete_exam',{id:String(id)});cache=cache.filter(e=>e.id!==String(id));}
+    async function clear(){await api('clear_exams');cache=[];}
+    async function importData(data){
         let raw;
-        if (Array.isArray(data)) raw = data;
-        else if (data?.format === "sap-pruefung" && data.version === 3) raw = data.exams;
-        else if (data && typeof data === "object" && "student" in data && "points" in data) raw = [data];
-        else throw new Error("Diese Datei ist keine unterstützte SAP-Sicherung.");
-        const incoming = normalizeList(raw, "import");
-        return locked(() => {
-            const existing = load();
-            let added = 0;
-            incoming.forEach(record => {
-                const same = existing.find(e => e.id === record.id);
-                if (same && JSON.stringify(same) === JSON.stringify(record)) return;
-                if (same) record.id = uid(); // Never replace a different existing result during import.
-                existing.push(record);
-                added++;
-            });
-            write(key, envelope(existing));
-            return added;
-        });
+        if(Array.isArray(data))raw=data;
+        else if(data?.format==='sap-pruefung'&&data.version===3)raw=data.exams;
+        else if(data&&typeof data==='object'&&'student' in data&&'points' in data)raw=[data];
+        else throw Error('Diese Datei ist keine unterstützte SAP-Sicherung.');
+        const records=normalizeList(raw,'import');const result=await send(records);await refresh();return result.added;
     }
-    function validateDraft(draft) {
-        if (!draft || draft.version !== 3 || typeof draft.id !== "string" || !draft.id ||
-            !["active", "completed"].includes(draft.status) || typeof draft.student !== "string" || !draft.student.trim() ||
-            typeof draft.examiner !== "string" || !draft.examiner.trim() || !Number.isFinite(Date.parse(draft.startTime)) ||
-            !Number.isInteger(draft.index) || draft.index < 0 || draft.index >= draft.questions?.length ||
-            (draft.status === "completed" && !Number.isFinite(Date.parse(draft.endTime)))) {
-            throw new Error("Die unterbrochene Prüfung ist beschädigt. Bitte die Rohdaten sichern, bevor du sie verwirfst.");
+    async function loadDraft(){const current=epoch,data=await api('load_draft');checkSession(current);revision=data.revision;return data.draft?clone(data.draft):null;}
+    function saveDraft(draft){
+        const snapshot=clone(draft),current=epoch;
+        const task=draftQueue.catch(()=>{}).then(async()=>{checkSession(current);const data=await api('save_draft',{draft:snapshot,revision});checkSession(current);revision=data.revision;});
+        draftQueue=task;return task;
+    }
+    async function removeDraft(id){const current=epoch;await draftQueue.catch(()=>{});checkSession(current);if(!revision)return;await api('remove_draft',{id,revision});checkSession(current);revision=0;}
+    function decodeSource(raw,name){
+        const data=parse(raw,name);
+        const rows=Array.isArray(data)?data:data?.format==='sap-pruefung'&&data.version===3?data.exams:null;
+        if(!Array.isArray(rows))throw Error(`Unbekanntes Gerätearchiv (${name}). Es wurde nicht verändert.`);
+        return normalizeList(rows,'migration');
+    }
+    async function migrateLocal(){
+        const summary={added:0,removed:0,warnings:[]};const current=epoch;
+        let names;
+        try{names=Array.from({length:localStorage.length},(_,i)=>localStorage.key(i)).filter(Boolean);}catch{summary.warnings.push('Vorhandene Gerätedaten konnten nicht gelesen werden. Neue SAPs werden trotzdem zentral gespeichert.');return summary;}
+        const scoped=names.filter(name=>name.startsWith(baseKey+'_')&&(isAdmin||name===baseKey+'_'+userId));
+        const candidates=scoped.length?scoped:isAdmin?(names.includes(baseKey)?[baseKey]:legacyKeys.filter(name=>names.includes(name))):[];
+        let complete=true;
+        for(const name of candidates){
+            try{checkSession(current);const raw=read(name);if(raw===null)continue;const records=decodeSource(raw,name);const result=await send(records);summary.added+=result.added;checkSession(current);removeLocal(name,raw);summary.removed++;}
+            catch(error){complete=false;summary.warnings.push(error.message);}
         }
-        SAPEngine.evaluate(draft.questions, draft.answersGiven);
-        return clone(draft);
-    }
-    function loadDraft() {
-        const raw = read(draftKey) ?? (useLegacy && draftKey !== baseDraftKey ? read(baseDraftKey) : null);
-        return raw === null ? null : validateDraft(parse(raw, "laufende Prüfung"));
-    }
-    function saveDraft(draft) { write(draftKey, validateDraft(draft)); }
-    function removeDraft(id) {
-        for (const name of [draftKey, ...(useLegacy && draftKey !== baseDraftKey ? [baseDraftKey] : [])]) {
-            const raw = read(name);
-            if (raw === null) continue;
-            if (id != null && parse(raw, "laufende Prüfung").id !== id) continue;
-            try { localStorage.removeItem(name); }
-            catch { throw new Error("Die laufende Prüfung konnte nicht aus dem Browserspeicher entfernt werden."); }
+        // These keys are read-only backups superseded by a canonical local archive.
+        if(isAdmin&&complete&&candidates.length&&(scoped.length||candidates.includes(baseKey))){
+            for(const name of [baseKey,...legacyKeys])if(!candidates.includes(name))try{const raw=read(name);if(raw!==null){removeLocal(name,raw);summary.removed++;}}catch(error){summary.warnings.push(error.message);}
         }
+        for(const name of [baseDraftKey+'_'+userId,...(isAdmin?[baseDraftKey]:[])]){
+            try{
+                const raw=read(name);if(raw===null)continue;const local=parse(raw,name);
+                if(local?.status==='completed'){
+                    const record=normalize({id:local.id,student:local.student,examiner:local.examiner,questions:local.questions,answersGiven:local.answersGiven,startTime:local.startTime,endTime:local.endTime,created:local.endTime,durationSeconds:Math.max(0,Math.round((Date.parse(local.endTime)-Date.parse(local.startTime))/1000))});
+                    const result=await send([record]);summary.added+=result.added;removeLocal(name,raw);
+                }else{
+                    const remote=await loadDraft();
+                    if(!remote){await saveDraft(local);removeLocal(name,raw);}
+                    else if(JSON.stringify(remote)===JSON.stringify(local))removeLocal(name,raw);
+                    else summary.warnings.push('Ein älterer lokaler Zwischenstand bleibt erhalten, weil bereits ein anderer zentraler Prüfungsstand vorhanden ist.');
+                }
+            }catch(error){summary.warnings.push(error.message);}
+        }
+        return summary;
     }
-    function rawBackup() {
-        return Object.fromEntries([key, draftKey, ...(useLegacy ? [baseKey, baseDraftKey, ...legacyKeys] : [])].map(k => [k, read(k)]));
-    }
-    return Object.freeze({get key() { return key; }, get draftKey() { return draftKey; }, setUser, uid, normalize, load, save, remove, clear, resetArchive, importData, envelope, loadDraft, saveDraft, removeDraft, rawBackup});
+    function rawBackup(){const result={};try{for(let i=0;i<localStorage.length;i++){const name=localStorage.key(i);if(name&&(name.startsWith(baseKey)||name.startsWith(baseDraftKey)||legacyKeys.includes(name)))result[name]=read(name);}}catch{result.error='Gerätedaten nicht lesbar';}return result;}
+    return Object.freeze({get key(){return 'sap_cloud_archive';},setUser,uid,normalize,normalizeList,load,refresh,save,remove,clear,importData,envelope,loadDraft,saveDraft,removeDraft,migrateLocal,rawBackup});
 })();

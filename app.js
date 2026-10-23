@@ -49,19 +49,29 @@
     function badge(record) {
         return `<span class="badge ${record.passed ? "pass" : "fail"}">${record.passed ? "Bestanden" : "Nicht bestanden"}</span>`;
     }
-    function saveDraft() {
+    let draftSequence = 0, draftSaving = false;
+    async function saveDraft() {
         if (!active) return;
+        const sequence = ++draftSequence;
+        draftSafe = false; draftSaving = true;
+        updateDraftStatus();
         try {
-            SAPStorage.saveDraft(active);
-            draftSafe = true;
+            await SAPStorage.saveDraft(active);
+            if (sequence === draftSequence) draftSafe = true;
         } catch (error) {
-            draftSafe = false;
-            message(`${error.message} Der Prüfungsstand bleibt in dieser geöffneten Seite erhalten.`, true);
+            if (sequence === draftSequence) {
+                draftSafe = false;
+                message(`${error.message} Der Prüfungsstand ist noch nicht in Supabase gespeichert. Bitte diese Seite geöffnet lassen.`, true);
+            }
+        } finally {
+            if (sequence === draftSequence) { draftSaving = false; updateDraftStatus(); }
         }
-        const status = document.getElementById("draftStatus");
+    }
+    function updateDraftStatus() {
+        const status = document.getElementById('draftStatus');
         if (status) {
-            status.textContent = draftSafe ? "Zwischenstand lokal gespeichert" : "Zwischenstand nur in dieser geöffneten Seite";
-            status.classList.toggle("dangerText", !draftSafe);
+            status.textContent = draftSafe ? 'Zwischenstand in Supabase gespeichert' : draftSaving ? 'Zwischenstand wird in Supabase gespeichert …' : 'Zwischenstand noch nicht zentral gespeichert';
+            status.classList.toggle('dangerText', !draftSafe && !draftSaving);
         }
     }
     function home(focus = true) {
@@ -69,7 +79,7 @@
         if (active) { showQuestion(); return; }
         const breakdown = Object.entries(SAPEngine.blueprint).map(([name, amount]) => `<li><span>${escape(name)}</span><strong>${amount}</strong></li>`).join("");
         setView("home", `<div class="pageHeading"><p class="eyebrow">PRÜFUNG DURCHFÜHREN</p><h2>${repeatQuestions ? "SAP wiederholen" : "Neue SAP"}</h2><p>Antworten des Prüflings bewerten. Jeder gesetzte Haken zählt einen Punkt.</p></div>
-            ${draftError ? `<div class="panel warning"><h3>Unterbrochene Prüfung nicht lesbar</h3><p>Bitte sichere die Rohdaten, bevor du den beschädigten Zwischenstand verwirfst.</p><div class="actions">${button("raw-export", "Rohdaten sichern", "", "secondary")}${button("discard-broken", "Zwischenstand verwerfen", "", "danger")}</div></div>` : ""}
+            ${draftError ? `<div class="panel warning"><h3>Prüfungsstand nicht geladen</h3><p>Der zentrale Prüfungsstand konnte nicht geladen werden. Bitte erneut versuchen.</p><div class="actions">${button("raw-export", "Rohdaten sichern", "", "secondary")}${button("reload-cloud", "Erneut laden")}</div></div>` : ""}
             <div class="homeGrid"><section class="panel"><h3>Prüfungsdaten</h3><form id="startForm">
             <label for="studentName">Name des Prüflings</label><input id="studentName" name="student" autocomplete="off" maxlength="120" required value="${escape(defaults.student)}" placeholder="Vor- und Nachname">
             <label for="examinerName">Name des Prüfers</label><input id="examinerName" name="examiner" autocomplete="off" maxlength="120" required value="${escape(defaults.examiner)}" placeholder="Vor- und Nachname">
@@ -98,7 +108,7 @@
                 questions: selected, answersGiven: selected.map(() => [])};
             defaults = {student: "", examiner};
             repeatQuestions = null; currentResult = null; resultSaved = false;
-            message(""); saveDraft(); showQuestion();
+            message(""); await saveDraft(); showQuestion();
         } finally { busy = false; }
     }
     function showQuestion() {
@@ -113,7 +123,7 @@
             <h3 id="question">${escape(q.question)}</h3><fieldset id="checkboxes"><legend>Richtig genannte Antworten auswählen</legend>${q.answers.map((answer, i) => `<label class="answerItem"><input type="checkbox" name="answer" value="${i}" ${selected.includes(i) ? "checked" : ""}><span>${escape(answer)}</span></label>`).join("")}</fieldset>
             <p id="questionPoints" class="questionPoints" aria-live="polite">${selected.length} / ${q.answers.length} Punkte für diese Frage</p></section>
             <div class="examNavigation">${button("previous", "← Zurück", `id="backBtn" ${active.index === 0 ? "disabled" : ""}`, "secondary")}${button("next", active.index === active.questions.length - 1 ? "SAP abschließen" : "Weiter →", 'id="nextBtn"')}</div>
-            <div class="draftLine"><span id="draftStatus" class="${draftSafe ? "" : "dangerText"}">${draftSafe ? "Zwischenstand lokal gespeichert" : "Zwischenstand nur in dieser geöffneten Seite"}</span>${button("cancel-exam", "Prüfung abbrechen", "", "textButton")}</div>`);
+            <div class="draftLine"><span id="draftStatus" class="${draftSafe ? "" : "dangerText"}">${draftSafe ? "Zwischenstand in Supabase gespeichert" : "Zwischenstand noch nicht zentral gespeichert"}</span>${button("cancel-exam", "Prüfung abbrechen", "", "textButton")}</div>`);
     }
     function updateAnswer() {
         if (!active || active.status !== "active") return;
@@ -136,26 +146,30 @@
         active.endTime = new Date().toISOString();
         currentResult = buildResult(active);
         resultSaved = false;
-        saveDraft();
+        await saveDraft();
         await storeResult();
     }
     async function storeResult() {
         if (!currentResult || busy || resultSaved) return;
         busy = true;
+        const savingUser = SAPAccess.user?.id, draftId = active?.id;
         try {
-            currentResult = await SAPStorage.save(currentResult);
+            if (active && !draftSafe) { await saveDraft(); if (!draftSafe) throw new Error("Der Prüfungsstand konnte nicht bestätigt werden. Bitte zuerst die Speicherverbindung oder den Versionskonflikt beheben."); }
+            const savedResult = await SAPStorage.save(currentResult);
+            if (SAPAccess.user?.id !== savingUser) return;
+            currentResult = savedResult;
             resultSaved = true;
             active = null;
             draftSafe = true;
-            message("Die SAP wurde lokal gespeichert.");
-            try { SAPStorage.removeDraft(currentResult.id); }
+            message("Die SAP wurde in Supabase gespeichert.");
+            try { await SAPStorage.removeDraft(draftId || currentResult.sourceId || currentResult.id); }
             catch (error) { message(`Ergebnis gespeichert. ${error.message}`, true); }
         } catch (error) {
             resultSaved = false;
             message(`${error.message} Das Ergebnis bleibt geöffnet.`, true);
         } finally {
             busy = false;
-            showResult(currentResult, resultSaved);
+            if (SAPAccess.user?.id === savingUser) showResult(currentResult, resultSaved);
         }
     }
     function mistakeList(record) {
@@ -169,21 +183,25 @@
         currentResult = record;
         resultSaved = saved;
         const full = record.questions ? `<details class="panel"><summary>Alle ${record.questions.length} Fragen und Bewertungen ansehen</summary><div class="reviewList">${record.questions.map((q, i) => `<article class="reviewQuestion"><p class="eyebrow">FRAGE ${i + 1} · ${escape(q.category)}</p><h4>${escape(q.question)}</h4>${q.situation ? `<p>${escape(q.situation)}</p>` : ""}<ul>${q.answers.map((a, j) => `<li class="${record.answersGiven[i].includes(j) ? "correct" : "missing"}"><span>${record.answersGiven[i].includes(j) ? "✓ Genannt:" : "– Fehlend:"}</span> ${escape(a)}</li>`).join("")}</ul></article>`).join("")}</div></details>` : "";
-        setView("result", `<div class="pageHeading"><p class="eyebrow">AUSWERTUNG</p><h2>SAP-Ergebnis</h2><p id="saveStatus" class="${saved ? "" : "dangerText"}">${saved ? "Lokal gespeichert" : "Noch nicht dauerhaft gespeichert – bitte erneut speichern oder JSON sichern."}</p></div>
+        setView("result", `<div class="pageHeading"><p class="eyebrow">AUSWERTUNG</p><h2>SAP-Ergebnis</h2><p id="saveStatus" class="${saved ? "" : "dangerText"}">${saved ? "In Supabase gespeichert" : "Noch nicht dauerhaft gespeichert – bitte erneut speichern oder JSON sichern."}</p></div>
             <section class="panel resultPanel"><div><h3>${escape(record.student)}</h3><p>Prüfer: ${escape(record.examiner)}</p><dl class="resultMeta"><div><dt>Beginn</dt><dd>${escape(time(record.startTime || record.created))}</dd></div><div><dt>Ende</dt><dd>${escape(time(record.endTime))}</dd></div><div><dt>Dauer</dt><dd>${duration(record.durationSeconds)}</dd></div></dl></div><div class="resultScore"><strong>${fmt(record.percent)} %</strong><p>${record.points} / ${record.maxPoints} Punkte</p>${badge(record)}<p class="muted">Bestehensgrenze: 80 %</p></div></section>
             <div class="actions resultActions">${!saved ? button("retry-save", "Erneut speichern") + button("discard-result", "Ergebnis verwerfen", "", "danger") : ""}${button("export-result", "JSON sichern", "", "secondary")}${saved ? button("new", "Neue SAP") + (record.questions ? button("repeat", "Diese SAP wiederholen", "", "secondary") : "") : ""}${button("saved", "Zum Archiv", "", "secondary")}</div>
             <section class="panel"><div class="panelTitle"><h3>Fehleranalyse</h3><span class="tag">${record.maxPoints - record.points} fehlende Punkte</span></div>${mistakeList(record)}</section>${full}`);
     }
     function archiveCard(record) {
-        return `<article class="savedCard"><div><h3>${escape(record.student)}</h3><p>Prüfer: ${escape(record.examiner)}</p><p class="muted">${escape(time(record.startTime || record.created))}</p></div><div class="savedScore"><strong>${fmt(record.percent)} %</strong><span>${record.points} / ${record.maxPoints} Punkte</span>${badge(record)}</div><div class="actions">${button("open", "Öffnen", `data-id="${escape(record.id)}"`, "secondary")}${button("delete", "Löschen", `data-id="${escape(record.id)}"`, "danger")}</div></article>`;
+        return `<article class="savedCard"><div><h3>${escape(record.student)}</h3><p>Prüfer: ${escape(record.examiner)}</p><p class="muted">${escape(time(record.startTime || record.created))}</p></div><div class="savedScore"><strong>${fmt(record.percent)} %</strong><span>${record.points} / ${record.maxPoints} Punkte</span>${badge(record)}</div><div class="actions">${button("open", "Öffnen", `data-id="${escape(record.id)}"`, "secondary")}${record.canDelete ? button("delete", "Löschen", `data-id="${escape(record.id)}"`, "danger") : ""}</div></article>`;
     }
-    function saved() {
-        const records = SAPStorage.load();
-        setView("saved", `<div class="pageHeading"><p class="eyebrow">PRÜFUNGSARCHIV</p><h2>Gespeicherte SAPs <span class="headingCount">${records.length}</span></h2><p>Ergebnisse und Bewertungen aus diesem Browser.</p></div><div class="actions archiveActions">${button("export-all", "Alle als JSON sichern", records.length ? "" : "disabled", "secondary")}${button("import", "JSON importieren", "", "secondary")}${button("delete-all", "Alle löschen", records.length ? "" : "disabled", "danger")}</div><div id="savedExamList">${records.length ? records.map(archiveCard).join("") : '<div class="panel empty"><h3>Noch keine SAP gespeichert</h3><p>Schließe eine Prüfung ab oder importiere eine vorhandene JSON-Sicherung.</p></div>'}</div>`);
+    async function saved() {
+        const viewer = SAPAccess.user?.id;
+        const records = await SAPStorage.refresh();
+        if (SAPAccess.user?.id !== viewer) return;
+        setView("saved", `<div class="pageHeading"><p class="eyebrow">PRÜFUNGSARCHIV</p><h2>Gespeicherte SAPs <span class="headingCount">${records.length}</span></h2><p>Gemeinsames Prüfungsarchiv aus Supabase – auf allen Geräten verfügbar.</p></div><div class="actions archiveActions">${button("export-all", "Alle als JSON sichern", records.length ? "" : "disabled", "secondary")}${button("import", "JSON importieren", "", "secondary")}${SAPAccess.user.role === "admin" ? button("delete-all", "Alle löschen", records.length ? "" : "disabled", "danger") : ""}${button("migrate-local", "Alte Gerätedaten übernehmen", "", "secondary")}</div><div id="savedExamList">${records.length ? records.map(archiveCard).join("") : '<div class="panel empty"><h3>Noch keine SAP gespeichert</h3><p>Schließe eine Prüfung ab oder importiere eine vorhandene JSON-Sicherung.</p></div>'}</div>`);
     }
     function metric(label, value) { return `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`; }
-    function statistics() {
-        const records = SAPStorage.load();
+    async function statistics() {
+        const viewer = SAPAccess.user?.id;
+        const records = await SAPStorage.refresh();
+        if (SAPAccess.user?.id !== viewer) return;
         const stats = SAPEngine.statistics(records);
         setView("stats", `<div class="pageHeading"><p class="eyebrow">SCHULSTATISTIK</p><h2>Statistik-Dashboard</h2><p>Auswertung aller ${stats.total} gespeicherten Prüfungen.</p></div>
             <section class="metrics" aria-label="Kennzahlen">${metric("Prüfungen", stats.total)}${metric("Bestanden", stats.passed)}${metric("Nicht bestanden", stats.failed)}${metric("Bestehensquote", fmt(stats.successRate) + " %")}${metric("Ø Ergebnis", fmt(stats.averagePercent) + " %")}${metric("Ø Punkte", fmt(stats.averagePoints))}</section>
@@ -202,12 +220,12 @@
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 10000);
     }
-    function openRecord(id) {
+    async function openRecord(id) {
         if (active?.status === "completed" && !resultSaved) {
             message("Bitte das aktuelle Ergebnis zuerst speichern. Du kannst es unter „SAP-Ergebnis“ öffnen.", true);
             return;
         }
-        const record = SAPStorage.load().find(e => e.id === id);
+        const record = (await SAPStorage.refresh()).find(e => e.id === id);
         if (!record) throw new Error("Diese SAP ist nicht mehr im Archiv vorhanden.");
         showResult(record, true);
     }
@@ -215,8 +233,8 @@
         if (!SAPAccess.user || busy) return;
         switch (action) {
             case "home": home(); break;
-            case "saved": saved(); break;
-            case "stats": statistics(); break;
+            case "saved": await saved(); break;
+            case "stats": await statistics(); break;
             case "previous":
                 if (active?.status === "active" && active.index > 0) { active.index--; saveDraft(); showQuestion(); }
                 break;
@@ -236,39 +254,39 @@
             case "cancel-repeat": repeatQuestions = null; home(); break;
             case "cancel-exam":
                 if (active && confirm("Laufende SAP abbrechen und diesen Zwischenstand verwerfen?")) {
-                    SAPStorage.removeDraft(active.id); active = null; currentResult = null; draftSafe = true; message(""); home();
+                    await SAPStorage.removeDraft(active.id); active = null; currentResult = null; draftSafe = true; message(""); home();
                 }
                 break;
             case "discard-broken":
                 if (confirm("Den beschädigten Zwischenstand unwiderruflich verwerfen? Gespeicherte Ergebnisse bleiben erhalten.")) {
-                    SAPStorage.removeDraft(); draftError = false; message(""); home();
+                    await SAPStorage.removeDraft(active?.id); draftError = false; message(""); home();
                 }
                 break;
             case "retry-save": await storeResult(); break;
             case "discard-result":
                 if (active?.status === "completed" && !resultSaved && confirm("Das ungespeicherte Ergebnis verwerfen? Sichere es bei Bedarf vorher als JSON.")) {
-                    SAPStorage.removeDraft(active.id); active = null; currentResult = null; draftSafe = true; message(""); home();
+                    await SAPStorage.removeDraft(active.id); active = null; currentResult = null; draftSafe = true; message(""); home();
                 }
                 break;
-            case "reset-archive":
-                if (confirm("Das nicht lesbare Archiv zurücksetzen? Bitte sichere zuerst die Rohdaten. Eine laufende oder noch ungespeicherte Prüfung bleibt erhalten.")) {
-                    await SAPStorage.resetArchive(); message("Das Archiv wurde zurückgesetzt. Ein noch offenes Ergebnis kannst du erneut speichern.");
-                    if (active?.status === "completed") home(); else saved();
-                }
-                break;
-            case "open": openRecord(target.dataset.id); break;
+            case "reload-cloud": await SAPStorage.refresh(); await initialize(); break;
+            case "migrate-local": {
+                const info = await SAPStorage.migrateLocal();
+                message(info.warnings.length ? info.warnings.join(' ') : `${info.added} bisherige SAPs in Supabase übernommen.`, !!info.warnings.length);
+                await saved(); break;
+            }
+            case "open": await openRecord(target.dataset.id); break;
             case "delete":
                 if (confirm("Diese gespeicherte SAP endgültig löschen?")) {
-                    await SAPStorage.remove(target.dataset.id); message("SAP gelöscht. Die Statistik wurde aktualisiert."); saved();
+                    await SAPStorage.remove(target.dataset.id); message("SAP gelöscht. Die Statistik wurde aktualisiert."); await saved();
                 }
                 break;
             case "delete-all":
                 if (confirm("Alle gespeicherten SAPs endgültig löschen? Eine laufende Prüfung bleibt erhalten.")) {
-                    await SAPStorage.clear(); message("Alle gespeicherten SAPs wurden gelöscht."); saved();
+                    await SAPStorage.clear(); message("Alle gespeicherten SAPs wurden gelöscht."); await saved();
                 }
                 break;
             case "export-result": if (currentResult) download(SAPStorage.envelope([currentResult]), "SAP-Ergebnis.json"); break;
-            case "export-all": download(SAPStorage.envelope(SAPStorage.load()), "SAP-Sicherung.json"); break;
+            case "export-all": download(SAPStorage.envelope(await SAPStorage.refresh()), "SAP-Sicherung.json"); break;
             case "raw-export": download(SAPStorage.rawBackup(), "SAP-Rohdaten.json"); break;
             case "import": document.getElementById("importFile").click(); break;
         }
@@ -298,20 +316,16 @@
             catch { throw new Error("Die Datei enthält kein gültiges JSON. Es wurde nichts importiert."); }
             const count = await SAPStorage.importData(data);
             message(`${count} SAP${count === 1 ? "" : "s"} importiert. Identische Datensätze wurden nicht doppelt gespeichert.`);
-            saved();
+            await saved();
         } catch (error) { reportError(error); }
         finally { event.target.value = ""; }
+    });
+    window.addEventListener("sap-before-logout", event => {
+        if (active && !draftSafe) { event.preventDefault(); message("Der Prüfungsstand ist noch nicht in Supabase gespeichert. Bitte die Speicherung abwarten oder die SAP ausdrücklich abbrechen.", true); }
     });
     window.addEventListener("beforeunload", event => {
         if (active && (!draftSafe || (active.status === "completed" && !resultSaved))) {
             event.preventDefault(); event.returnValue = "";
-        }
-    });
-    window.addEventListener("storage", event => {
-        if (!SAPAccess.user) return;
-        if (event.key === SAPStorage.key) {
-            try { if (view === "stats") statistics(); else if (view === "saved") saved(); }
-            catch (error) { reportError(error); }
         }
     });
     function reportError(error) {
@@ -324,30 +338,22 @@
             recovery.dataset.action = "raw-export";
             recovery.textContent = "Rohdaten sichern";
             notice.appendChild(recovery);
-            try { SAPStorage.load(); }
-            catch (storageError) {
-                if (!storageError.message.includes("keinen Zugriff")) {
-                    const reset = document.createElement("button");
-                    reset.type = "button"; reset.className = "danger";
-                    reset.dataset.action = "reset-archive"; reset.textContent = "Beschädigtes Archiv zurücksetzen";
-                    notice.appendChild(reset);
-                }
-            }
         }
     }
-    function initialize() {
+    async function initialize() {
     try {
         SAPEngine.validateQuestions(questionBank);
         try {
-            active = SAPStorage.loadDraft();
+            draftError = false;
+            active = await SAPStorage.loadDraft();
             if (active?.status === "completed") {
                 currentResult = buildResult(active);
                 try {
-                    const existing = SAPStorage.load().find(e => e.id === active.id);
-                    if (existing) { currentResult = existing; resultSaved = true; SAPStorage.removeDraft(active.id); active = null; }
+                    const existing = SAPStorage.load().find(e => e.sourceId === active.id || e.id === active.id);
+                    if (existing) { currentResult = existing; resultSaved = true; await SAPStorage.removeDraft(active.id); active = null; }
                 } catch (error) { reportError(error); }
             }
-        } catch (error) { draftError = !error.message.includes("erlaubt keinen Zugriff"); reportError(error); }
+        } catch (error) { draftError = true; reportError(error); }
         if (currentResult) showResult(currentResult, resultSaved);
         else home(false);
         if (active?.status === "active") message("Die unterbrochene SAP wurde mit allen bisherigen Bewertungen wiederhergestellt.");
@@ -360,7 +366,13 @@
         SAPStorage.setUser(user.id, user.role === 'admin');
         defaults.examiner = user.display_name || user.username;
         questionBank = await SAPAccess.questions();
-        initialize();
+        app.innerHTML = '<section class="panel"><h2>Prüfungsarchiv wird verbunden …</h2><p>Vorhandene Gerätedaten werden geprüft und bestätigte Übernahmen mit Supabase abgeglichen.</p></section>';
+        const migration = await SAPStorage.migrateLocal();
+        await SAPStorage.refresh();
+        await initialize();
+        if (migration.warnings.length) message(migration.warnings.join(" "), true);
+        else if (migration.removed || migration.added) message(`${migration.added} bisherige SAPs in Supabase übernommen. Gerätedaten nach bestätigter Übernahme entfernt.`);
+        else if (!active) message(`Angemeldet als ${user.username}. SAPs werden zentral in Supabase gespeichert.`);
     }, () => {
         active = null; currentResult = null; resultSaved = false; draftError = false;
         busy = false; repeatQuestions = null; questionBank = []; view = "home";

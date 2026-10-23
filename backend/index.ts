@@ -1,3 +1,4 @@
+import { normalizeExam, normalizeDraft } from './exams.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 
 const url = Deno.env.get('SUPABASE_URL')!;
@@ -29,7 +30,7 @@ Deno.serve(async request => {
     if (request.method!=='POST') return respond({error:'POST erforderlich.'},405);
     try {
         const raw=await request.text();
-        if (raw.length>100000) fail(413,'Die Anfrage ist zu groß.');
+        if (raw.length>2000000) fail(413,'Die Anfrage ist zu groß.');
         let body: any;try {body=JSON.parse(raw);}catch {fail(400,'Ungültige Anfrage.');}
         const server=createClient(url,serviceKey,{auth:{persistSession:false,autoRefreshToken:false}});
         // INITIAL_ADMIN_BOOTSTRAP
@@ -49,6 +50,45 @@ Deno.serve(async request => {
         const db=createClient(url,serviceKey,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{'x-sap-actor-id':actor.id,'x-sap-actor-name':actor.username}}});
         const action=body.action;
         if (action==='me') return respond({user:safeUser(actor)});
+        const cloudRecord=(row:any)=>({...row.record,id:row.id,sourceId:row.record.id,ownerId:row.created_by,canDelete:admin||row.created_by===actor.id});
+        if(action==='list_exams') {
+            const offset=Number.isInteger(body.offset)&&body.offset>=0?body.offset:0;
+            const {data,error}=await db.from('sapg_exam_archive').select('id,record,created_by').is('deleted_at',null).order('created_at',{ascending:false}).order('id').range(offset,offset+99);
+            dbCheck(error);return respond({exams:data?.map(cloudRecord),has_more:data?.length===100});
+        }
+        if(action==='store_exams') {
+            if(!Array.isArray(body.exams)||!body.exams.length||body.exams.length>20)fail(400,'Bitte 1–20 SAPs je Anfrage übertragen.');
+            let records;try{records=body.exams.map(normalizeExam);}catch(error){fail(400,(error as Error).message);}
+            const {data,error}=await db.rpc('sapg_store_exams',{p_actor:actor.id,p_records:records});dbCheck(error);
+            return respond({added:data.added,receipts:data.rows.map((row:any)=>({sourceId:row.record.id,id:row.id,deleted:!!row.deleted_at})),exams:data.rows.filter((row:any)=>!row.deleted_at).map(cloudRecord)});
+        }
+        if(action==='delete_exam') {
+            if(typeof body.id!=='string')fail(400,'SAP-Kennung fehlt.');
+            const {data:row,error:lookupError}=await db.from('sapg_exam_archive').select('created_by').eq('id',body.id).maybeSingle();dbCheck(lookupError);
+            if(!row)fail(404,'SAP nicht gefunden.');if(!admin&&row.created_by!==actor.id)fail(403,'Nur der Ersteller oder Admin darf diese SAP löschen.');
+            const {error}=await db.from('sapg_exam_archive').update({deleted_at:new Date().toISOString()}).eq('id',body.id);dbCheck(error);return respond({ok:true});
+        }
+        if(action==='clear_exams') {
+            requireAdmin();const {error}=await db.from('sapg_exam_archive').update({deleted_at:new Date().toISOString()}).is('deleted_at',null);dbCheck(error);return respond({ok:true});
+        }
+        if(action==='load_draft') {
+            const {data,error}=await db.from('sapg_exam_drafts').select('draft,revision').eq('user_id',actor.id).maybeSingle();dbCheck(error);return respond({draft:data?.draft||null,revision:data?.revision||0});
+        }
+        if(action==='save_draft') {
+            if(!Number.isInteger(body.revision)||body.revision<0)fail(400,'Versionsnummer fehlt.');
+            let draft;try{draft=normalizeDraft(body.draft);}catch(error){fail(400,(error as Error).message);}
+            const values={draft,revision:body.revision+1,updated_at:new Date().toISOString()};
+            const result=body.revision===0?await db.from('sapg_exam_drafts').insert({user_id:actor.id,...values}).select('revision').maybeSingle():await db.from('sapg_exam_drafts').update(values).eq('user_id',actor.id).eq('revision',body.revision).select('revision').maybeSingle();
+            if(result.error?.code==='23505'||(!result.error&&!result.data))fail(409,'Der Prüfungsstand wurde auf einem anderen Gerät geändert. Bitte neu laden.');
+            dbCheck(result.error);return respond({revision:result.data.revision});
+        }
+        if(action==='remove_draft') {
+            if(!Number.isInteger(body.revision))fail(400,'Versionsnummer fehlt.');
+            const {data:row,error:lookupError}=await db.from('sapg_exam_drafts').select('draft,revision').eq('user_id',actor.id).maybeSingle();dbCheck(lookupError);
+            if(!row)return respond({ok:true});
+            if(row.revision!==body.revision||row.draft.id!==body.id)fail(409,'Der Prüfungsstand wurde inzwischen auf einem anderen Gerät geändert.');
+            const {error}=await db.from('sapg_exam_drafts').delete().eq('user_id',actor.id).eq('revision',body.revision);dbCheck(error);return respond({ok:true});
+        }
         if (action==='questions') {
             let query=db.from('sapg_questions').select('*').order('category').order('created_at').order('id');
             if (!admin || !body.include_deleted) query=query.is('deleted_at',null);

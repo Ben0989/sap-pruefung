@@ -1,13 +1,17 @@
 {
   "name": "sap-pruefungsgenerator",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "private": true,
   "scripts": {
     "test": "node --test tests/core.test.cjs",
     "test:browser": "node --test tests/browser.test.cjs",
-    "test:auth": "node tests/auth.integration.cjs"
+    "test:auth": "node tests/auth.integration.cjs",
+    "test:cloud": "node tests/cloud.integration.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

@@ -128,7 +128,8 @@ const SAPAccess = (() => {
                 const account=users.find(u=>u.id===target.dataset.id);if(!account)throw new Error('Benutzer nicht gefunden.');
                 if(confirm(`Zugang für ${account.username} ${account.active?'sperren':'freigeben'}?`)){await api('set_user_active',{id:account.id,active:!account.active});await userList();tell('Der Benutzerstatus wurde geändert.');}
             } else if(action==='logout'){
-                if(confirm('Jetzt abmelden? Eine laufende Prüfung bleibt als Zwischenstand für deinen Benutzer gespeichert.')){
+                if(!window.dispatchEvent(new Event('sap-before-logout',{cancelable:true})))return;
+                if(confirm('Jetzt abmelden? Eine laufende Prüfung bleibt als zentraler Zwischenstand für deinen Benutzer gespeichert.')){
                     try{await fetch(SAPConfig.url+'/auth/v1/logout?scope=local',{method:'POST',headers:{...publicHeaders(),Authorization:'Bearer '+session.access_token},signal:AbortSignal.timeout(10000)});}catch{}
                     lock();tell('Du wurdest abgemeldet.');
                 }
@@ -151,7 +152,7 @@ const SAPAccess = (() => {
                 const username=form.elements.username.value.trim();if(!/^[A-Za-z0-9._-]{3,40}$/.test(username))throw new Error('Bitte einen gültigen Benutzernamen eingeben.');
                 const data=await authRequest('token?grant_type=password',{email:`sap-${username.toLowerCase()}@sap.glendale.invalid`,password:form.elements.password.value});
                 storeSession({access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Math.floor(Date.now()/1000)+data.expires_in});
-                try{await unlock();tell('Angemeldet als '+user.username+'.');}catch(error){lock();throw error;}
+                try{await unlock();}catch(error){lock();throw error;}
             } else {
                 if(!user)throw new Error('Bitte anmelden.');
                 if(form.id==='questionForm'){

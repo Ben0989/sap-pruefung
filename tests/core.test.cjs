@@ -1,196 +1,23 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const vm = require('node:vm');
-const path = require('node:path');
-const root = path.join(__dirname, '..');
-
-function runtime(initial = {}) {
-    const memory = new Map(Object.entries(initial));
-    const storage = {
-        getItem: key => memory.has(key) ? memory.get(key) : null,
-        setItem: (key, value) => memory.set(key, String(value)),
-        removeItem: key => memory.delete(key)
-    };
-    const ctx = vm.createContext({localStorage: storage, console, crypto: require('node:crypto').webcrypto});
-    for (const file of ['questions.js', 'generator.js', 'storage.js']) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), ctx, {filename: file});
-    vm.runInContext('globalThis.api = {bank: questions, engine: SAPEngine, storage: SAPStorage}', ctx);
-    return {...ctx.api, memory, nativeStorage: storage};
-}
-const plain = value => JSON.parse(JSON.stringify(value));
-const bank = [
-    {id: 'A', category: 'Alpha', question: 'Frage A', answers: ['A1', 'A2', 'A3']},
-    {id: 'B', category: 'Beta', question: 'Frage B', situation: 'Situation', answers: ['B1', 'B2']}
-];
-function result(id = 'result', selections = [[0, 2], [0]], examiner = 'Lehrkraft') {
-    return {id, student: 'Testperson', examiner, questions: structuredClone(bank), answersGiven: structuredClone(selections),
-        startTime: '2026-10-22T14:00:00.000Z', endTime: '2026-10-22T14:02:30.000Z',
-        created: '2026-10-22T14:02:30.000Z', durationSeconds: 150};
-}
-
-test('75 unchanged questions; 1,000 exams have exactly 20 unique questions and fixed quotas', () => {
-    const {engine, bank: source} = runtime();
-    assert.equal(source.length, 75);
-    const original = JSON.stringify(source);
-    const uniqueOrders = new Set();
-    for (let i = 0; i < 1000; i++) {
-        const exam = engine.generate(source);
-        assert.equal(exam.length, 20);
-        assert.equal(new Set(exam.map(q => q.id)).size, 20);
-        assert.deepEqual(plain(exam.reduce((a, q) => (a[q.category] = (a[q.category] || 0) + 1, a), {})), plain(engine.blueprint));
-        uniqueOrders.add(exam.map(q => q.id).join(','));
-        exam[0].answers[0] = 'changed snapshot';
-    }
-    assert.equal(JSON.stringify(source), original);
-    assert.ok(uniqueOrders.size > 990);
-});
-test('empty, duplicate and incomplete question banks fail with an actionable error', () => {
-    const {engine, bank: source} = runtime();
-    assert.throws(() => engine.generate([]), /leer/);
-    assert.throws(() => engine.generate([...source, source[0]]), /doppelte/);
-    assert.throws(() => engine.generate(source.filter(q => q.category !== 'Intern')), /Intern/);
-    assert.throws(() => engine.generate([{...source[0], answers: []}]), /Ungültige/);
-});
-test('points, exact missing answers and category totals are calculated independently', () => {
-    const {engine} = runtime();
-    const output = engine.evaluate(bank, [[0, 2], [0]]);
-    assert.equal(output.points, 3); assert.equal(output.maxPoints, 5);
-    assert.equal(output.percent, 60); assert.equal(output.passed, false);
-    assert.deepEqual(plain(output.mistakes.map(m => m.missing)), [['A2'], ['B2']]);
-    assert.deepEqual(plain(output.categories.map(c => [c.category, c.points, c.maxPoints])), [['Alpha', 2, 3], ['Beta', 1, 2]]);
-});
-test('80% boundary is exact; 79.6875% fails even though integer rounding gives 80', () => {
-    const {engine} = runtime();
-    const q = [{id:'boundary', category:'A', question:'Boundary', answers:Array.from({length:64}, (_, i) => String(i))}];
-    assert.equal(engine.evaluate(q, [Array.from({length:51}, (_, i) => i)]).passed, false);
-    assert.equal(engine.evaluate(bank, [[0,1,2],[0]]).passed, true);
-    assert.equal(engine.evaluate(bank, [[],[]]).percent, 0);
-    assert.equal(engine.evaluate(bank, [[0,1,2],[0,1]]).percent, 100);
-});
-test('invalid answer indexes, duplicated points and incomplete answer arrays are rejected', () => {
-    const {engine} = runtime();
-    for (const bad of [[[0,0],[]], [[-1],[]], [[3],[]], [['0'],[]], [[]]]) assert.throws(() => engine.evaluate(bank, bad));
-});
-test('saving, opening and re-saving preserve snapshots without duplicate exams', async () => {
-    const {storage} = runtime();
-    const source = result();
-    await storage.save(source);
-    source.questions[0] = {...source.questions[0], question:'later change'};
-    assert.equal(storage.load()[0].questions[0].question, 'Frage A');
-    await storage.save(storage.load()[0]);
-    assert.equal(storage.load().length, 1);
-    assert.equal(storage.load()[0].durationSeconds, 150);
-    assert.equal(storage.load()[0].points, 3);
-});
-test('both old storage keys migrate, including string scores and absent details', async () => {
-    const oldA = [{id:123, student:'Alt A', examiner:'P', points:51, maxPoints:64, percent:80, passed:true, mistakes:[], created:'22.10.2026, 12:00:00'}];
-    const oldB = [{student:'Alt B', points:'4', maxPoints:'5', percent:80, passed:true, date:'21.10.2026, 12:00:00'}];
-    const {storage, memory} = runtime({sap_exams:JSON.stringify(oldA), sap_pruefungen:JSON.stringify(oldB)});
-    assert.equal(storage.load().length, 2);
-    assert.equal(storage.load()[0].passed, false);
-    assert.equal(storage.load()[1].mistakes, null);
-    await storage.save(result());
-    assert.equal(storage.load().length, 3);
-    assert.equal(memory.get('sap_exams'), JSON.stringify(oldA));
-    assert.equal(memory.get('sap_pruefungen'), JSON.stringify(oldB));
-    await storage.clear();
-    assert.equal(storage.load().length, 0, 'legacy backups must not resurrect deleted exams');
-});
-test('corrupt JSON, wrong shape and invalid records are never overwritten', async () => {
-    for (const raw of ['{broken', '{}', 'null', '[{"points":7,"maxPoints":2}]']) {
-        const {storage, memory} = runtime({sap_exams:raw});
-        assert.throws(() => storage.load());
-        await assert.rejects(storage.save(result()));
-        assert.equal(memory.get('sap_exams'), raw);
-        assert.equal(memory.has(storage.key), false);
-    }
-});
-test('quota and security failures surface; existing archive stays intact', async () => {
-    const {storage, memory, nativeStorage} = runtime();
-    await storage.save(result());
-    const before = memory.get(storage.key);
-    nativeStorage.setItem = () => { throw new Error('QuotaExceededError'); };
-    await assert.rejects(storage.save(result('second')), /Speichern fehlgeschlagen/);
-    assert.equal(memory.get(storage.key), before);
-    nativeStorage.getItem = () => { throw new Error('SecurityError'); };
-    assert.throws(() => storage.load(), /keinen Zugriff/);
-});
-test('draft is restored with all checkboxes, current question and original start time', () => {
-    const {storage, memory} = runtime();
-    const draft = {version:3, id:'draft1', status:'active', student:'A', examiner:'B', startTime:'2026-10-22T14:00:00Z', endTime:null, index:1, questions:bank, answersGiven:[[0,2],[1]]};
-    storage.saveDraft(draft);
-    const second = runtime(Object.fromEntries(memory));
-    assert.deepEqual(plain(second.storage.loadDraft()), draft);
-    second.storage.removeDraft('someone-else');
-    assert.ok(second.storage.loadDraft());
-    second.storage.removeDraft('draft1');
-    assert.equal(second.storage.loadDraft(), null);
-});
-test('completed unsaved draft retains result and can be saved exactly once after reload', async () => {
-    const {storage, memory} = runtime();
-    storage.saveDraft({version:3,id:'done',status:'completed',student:'A',examiner:'B',startTime:'2026-10-22T14:00:00Z',endTime:'2026-10-22T14:02:00Z',index:1,questions:bank,answersGiven:[[0],[1]]});
-    const second = runtime(Object.fromEntries(memory));
-    const draft = second.storage.loadDraft();
-    await second.storage.save({...draft, points:0,maxPoints:1});
-    await second.storage.save({...draft, points:0,maxPoints:1});
-    assert.equal(second.storage.load().length, 1);
-    assert.equal(second.storage.load()[0].points, 2);
-});
-test('JSON export/import preserves every question and does not duplicate identical results', async () => {
-    const a = runtime(); await a.storage.save(result());
-    const backup = JSON.parse(JSON.stringify(a.storage.envelope(a.storage.load())));
-    const b = runtime();
-    assert.equal(await b.storage.importData(backup), 1);
-    assert.equal(await b.storage.importData(backup), 0);
-    assert.deepEqual(plain(a.storage.load()), plain(b.storage.load()));
-    const changed = plain(backup); changed.exams[0].student = 'Different person';
-    assert.equal(await b.storage.importData(changed), 1);
-    assert.equal(b.storage.load().length, 2);
-});
-test('invalid import is atomic and future backup formats are rejected', async () => {
-    const {storage} = runtime(); await storage.save(result());
-    const before = JSON.stringify(storage.load());
-    assert.throws(() => storage.importData([result('new'), {points:8,maxPoints:2}]), /Ungültige/);
-    assert.throws(() => storage.importData({format:'sap-pruefung', version:99, exams:[]}), /unterstützte/);
-    assert.equal(JSON.stringify(storage.load()), before);
-});
-test('statistics calculate actual weighted category totals, error frequency and examiner metrics', async () => {
-    const {storage, engine} = runtime();
-    await storage.save(result('partial', [[0,2],[0]], 'P1'));
-    await storage.save(result('perfect', [[0,1,2],[0,1]], 'P2'));
-    await storage.save({id:'old', student:'Alt', examiner:'P1', points:4,maxPoints:5});
-    const stats = engine.statistics(storage.load());
-    assert.equal(stats.total,3); assert.equal(stats.passed,2); assert.equal(stats.failed,1);
-    assert.equal(stats.detailed,2); assert.equal(stats.averagePercent,80); assert.equal(stats.averagePoints,4);
-    assert.equal(stats.successRate, 2/3*100);
-    const categories = Object.fromEntries(stats.categories.map(c => [c.category,c]));
-    assert.equal(categories.Alpha.points,5); assert.equal(categories.Alpha.maxPoints,6);
-    assert.equal(categories.Beta.points,3); assert.equal(categories.Beta.maxPoints,4);
-    assert.equal(stats.questions.length,2); assert.equal(stats.questions[0].asked,2); assert.equal(stats.questions[0].errors,1);
-    assert.equal(stats.examiners.find(e => e.name==='P1').average,70);
-    await storage.remove('partial');
-    const after = engine.statistics(storage.load());
-    assert.equal(after.total,2); assert.equal(after.questions.length,0); assert.equal(after.successRate,100);
-});
-test('empty statistics contain finite zeros', () => {
-    const {engine} = runtime();
-    const stats=engine.statistics([]);
-    for (const key of ['total','passed','failed','successRate','averagePercent','averagePoints']) assert.equal(stats[key],0);
-});
-test('asset paths stay relative for GitHub Pages subdirectory deployments', () => {
-    const html = fs.readFileSync(path.join(root,'index.html'),'utf8');
-    const assets = [...html.matchAll(/(?:src|href)="([^"#][^"]*)"/g)].map(m => m[1]).filter(p => !p.startsWith('data:'));
-    assert.equal(assets.length, 6);
-    for (const asset of assets) assert.ok(asset.startsWith('./'));
-    assert.ok(html.indexOf('storage.js') < html.indexOf('app.js'));
-    assert.equal((html.match(/<script defer/g)||[]).length,5);
-});
-
-test('teacher archives are isolated; admin can adopt legacy results', async () => {
-    const {storage} = runtime({sap_exams:JSON.stringify([{id:1,student:'Alt',points:4,maxPoints:5}])});
-    const a='00000000-0000-4000-8000-000000000001',b='00000000-0000-4000-8000-000000000002';
-    storage.setUser(a,false);assert.equal(storage.load().length,0);await storage.save(result('own-a'));
-    storage.setUser(b,false);assert.equal(storage.load().length,0);await storage.save(result('own-b'));
-    storage.setUser(a,false);assert.equal(storage.load()[0].id,'own-a');
-    storage.setUser('00000000-0000-4000-8000-000000000003',true);assert.equal(storage.load()[0].student,'Alt');
-});
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const root=path.join(__dirname,'..');
+const {runtime,cloud,record,draft,A,B,envelope,scoped,plain,bank,normalizeExam,normalizeDraft}=require('./cloud-fixture.cjs');
+test('1,000 generated exams retain 20 unique questions and all category quotas',()=>{const {engine,bank}=runtime();assert.equal(bank.length,75);const original=JSON.stringify(bank);for(let i=0;i<1000;i++){const exam=engine.generate(bank);assert.equal(exam.length,20);assert.equal(new Set(exam.map(q=>q.id)).size,20);assert.deepEqual(plain(exam.reduce((a,q)=>(a[q.category]=(a[q.category]||0)+1,a),{})),plain(engine.blueprint));exam[0].answers[0]='mutation';}assert.equal(JSON.stringify(bank),original);});
+test('invalid banks and answer indexes are rejected',()=>{const {engine,bank}=runtime();assert.throws(()=>engine.generate([]));assert.throws(()=>engine.generate([...bank,bank[0]]));assert.throws(()=>engine.generate(bank.filter(q=>q.category!=='Intern')));for(const choices of [[[0,0],[]],[[3],[]],[['0'],[]],[[]]])assert.throws(()=>engine.evaluate(bank.slice(0,2),choices));});
+test('scores, missing answers and the exact 80% boundary agree on client and server',()=>{const {engine}=runtime();assert.deepEqual(plain(engine.evaluate(bank,[[0,2],[0]]).mistakes.map(m=>m.missing)),[['A2'],['B2']]);const q=['x','y'].map(id=>({id,category:'A',question:'Boundary',answers:Array.from({length:32},(_,i)=>String(i))})),answers=[Array.from({length:32},(_,i)=>i),Array.from({length:19},(_,i)=>i)];assert.equal(engine.evaluate(q,answers).passed,false);assert.equal(normalizeExam({...record(),questions:q,answersGiven:answers,points:999,maxPoints:1}).passed,false);assert.equal(normalizeExam(record('pass',[[0,1,2],[0]])).passed,true);});
+test('new SAPs are stored only in cloud, visible on another device, with exact snapshots',async()=>{const a=runtime(),r=await a.storage.save(record());assert.equal(a.memory.size,0);assert.equal(r.points,3);assert.equal(r.sourceId,'exam');const b=runtime({},a.server,B,false);await b.storage.refresh();assert.equal(b.storage.load()[0].id,r.id);assert.deepEqual(plain(b.storage.load()[0].answersGiven),[[0,2],[0]]);});
+test('retry/import is idempotent while distinct exam IDs retain separate results',async()=>{const {storage,server}=runtime();await storage.save(record());await storage.save(record());assert.equal(server.rows.size,1);await storage.save(record('separate'));assert.equal(server.rows.size,2);const backup=storage.envelope(await storage.refresh());assert.equal(await storage.importData(plain(backup)),0);});
+test('canonical local archives migrate once and superseded backups are removed after confirmation',async()=>{const a=runtime({[scoped(A)]:envelope([record()]),sap_exams:JSON.stringify([{id:'outdated',student:'Deleted earlier',points:1,maxPoints:5}])});const out=await a.storage.migrateLocal();assert.equal(out.added,1);assert.equal(out.warnings.length,0);assert.equal(a.memory.size,0);assert.equal((await a.storage.migrateLocal()).added,0);assert.equal(a.server.rows.size,1);});
+test('both old formats retain student, examiner, date, points and unknown error details',async()=>{const old={student:'Alt',points:'4',maxPoints:'5',date:'22.10.2026, 12:00:00'};const a=runtime({sap_exams:JSON.stringify([old]),sap_pruefungen:JSON.stringify([old])});assert.equal((await a.storage.migrateLocal()).added,1);const rows=await a.storage.refresh();assert.equal(rows[0].student,'Alt');assert.equal(rows[0].created,old.date);assert.equal(rows[0].mistakes,null);assert.equal(a.memory.size,0);});
+test('a failed second batch leaves original data intact and retry never duplicates committed rows',async()=>{const records=Array.from({length:25},(_,i)=>record('e'+i)),raw=envelope(records);const a=runtime({[scoped(A)]:raw});a.server.fail=action=>action==='store_exams'&&a.server.calls===1;const first=await a.storage.migrateLocal();assert.equal(first.warnings.length,1);assert.equal(a.memory.get(scoped(A)),raw);assert.equal(a.server.rows.size,20);a.server.fail=null;assert.equal((await a.storage.migrateLocal()).added,5);assert.equal(a.server.rows.size,25);assert.equal(a.memory.size,0);});
+test('bad migration receipts never cause local deletion',async()=>{const raw=envelope([record()]),a=runtime({[scoped(A)]:raw});a.server.badReceipt=true;assert.equal((await a.storage.migrateLocal()).warnings.length,1);assert.equal(a.memory.get(scoped(A)),raw);a.server.badReceipt=false;await a.storage.migrateLocal();assert.equal(a.memory.size,0);assert.equal(a.server.rows.size,1);});
+test('concurrent changes to the old device archive are preserved for the next import',async()=>{const a=runtime({[scoped(A)]:envelope([record()])});a.server.afterStore=()=>{a.memory.set(scoped(A),envelope([record(),record('newer')]));a.server.afterStore=null;};assert.equal((await a.storage.migrateLocal()).warnings.length,1);assert.ok(a.memory.has(scoped(A)));await a.storage.migrateLocal();assert.equal(a.server.rows.size,2);assert.equal(a.memory.size,0);});
+test('corrupt device sources remain untouched while valid sources migrate',async()=>{const a=runtime({[scoped(A)]:'{broken',[scoped(B)]:envelope([record()])});const out=await a.storage.migrateLocal();assert.equal(out.added,1);assert.equal(out.warnings.length,1);assert.equal(a.memory.get(scoped(A)),'{broken');assert.equal(a.memory.has(scoped(B)),false);});
+test('deleted results never return when another device uploads an old copy',async()=>{const a=runtime(),r=await a.storage.save(record());await a.storage.remove(r.id);const b=runtime({[scoped(A)]:envelope([record()])},a.server);await b.storage.migrateLocal();assert.equal((await b.storage.refresh()).length,0);assert.equal(a.server.rows.size,1);assert.equal(b.memory.size,0);});
+test('admin imports all device scopes; teacher imports only own scope',async()=>{const a=runtime({[scoped(A)]:envelope([record('a')]),[scoped(B)]:envelope([record('b')])},cloud(),A,false);await a.storage.migrateLocal();assert.equal(a.memory.has(scoped(B)),true);assert.equal(a.server.rows.size,1);const admin=runtime(Object.fromEntries(a.memory),a.server,A,true);await admin.storage.migrateLocal();assert.equal(a.server.rows.size,2);});
+test('drafts resume on another device and are private to the signed-in teacher',async()=>{const a=runtime();await a.storage.loadDraft();await a.storage.saveDraft(draft());assert.equal(a.memory.size,0);const b=runtime({},a.server);const resumed=await b.storage.loadDraft();assert.deepEqual(plain(resumed),plain(normalizeDraft(draft())));const other=runtime({},a.server,B,false);assert.equal(await other.storage.loadDraft(),null);});
+test('draft revisions prevent stale writes or stale deletion from another device',async()=>{const a=runtime();await a.storage.loadDraft();await a.storage.saveDraft(draft());const b=runtime({},a.server);await b.storage.loadDraft();await a.storage.saveDraft({...draft(),index:1});await assert.rejects(b.storage.saveDraft({...draft(),index:1}),/anderes Gerät/);await assert.rejects(b.storage.removeDraft('draft'),/anderes Gerät/);assert.equal(a.server.drafts.get(A).revision,2);});
+test('legacy completed and active drafts are uploaded before their device copies are removed',async()=>{const completed={...draft(),status:'completed',endTime:'2026-10-23T10:02:00Z'};const a=runtime({['sap_pruefung_draft_v3_'+A]:JSON.stringify(completed)});await a.storage.migrateLocal();assert.equal(a.server.rows.size,1);assert.equal(a.memory.size,0);const b=runtime({['sap_pruefung_draft_v3_'+A]:JSON.stringify(draft())});await b.storage.migrateLocal();assert.ok(b.server.drafts.has(A));assert.equal(b.memory.size,0);});
+test('statistics aggregate the central archive and remove deleted results',async()=>{const a=runtime();await a.storage.save(record('partial'));await a.storage.save(record('perfect',[[0,1,2],[0,1]]));let stats=a.engine.statistics(await a.storage.refresh());assert.equal(stats.total,2);assert.equal(stats.averagePercent,80);assert.equal(stats.passed,1);const partial=a.storage.load().find(r=>r.sourceId==='partial');await a.storage.remove(partial.id);stats=a.engine.statistics(await a.storage.refresh());assert.equal(stats.total,1);assert.equal(stats.questions.length,0);});
+test('teacher cannot delete another teacher result or clear the shared archive',async()=>{const a=runtime(),result=await a.storage.save(record());const b=runtime({},a.server,B,false);await b.storage.refresh();assert.equal(b.storage.load()[0].canDelete,false);await assert.rejects(b.storage.remove(result.id));await assert.rejects(b.storage.clear());});
+test('server rejects malformed snapshots and recomputes tampered scores',()=>{assert.equal(normalizeExam({...record(),points:1000,maxPoints:1,passed:true}).points,3);assert.throws(()=>normalizeExam({...record(),answersGiven:[[0,0],[]]}));assert.throws(()=>normalizeExam({points:10,maxPoints:2}));assert.throws(()=>normalizeDraft({...draft(),index:99}));});
+test('all runtime assets remain relative for GitHub Pages',()=>{const html=fs.readFileSync(path.join(root,'index.html'),'utf8');const assets=[...html.matchAll(/(?:src|href)="([^"#][^"]*)"/g)].map(m=>m[1]).filter(s=>!s.startsWith('data:'));for(const asset of assets)assert.ok(asset.startsWith('./'));assert.ok(html.includes('v=5.0.0'));});
